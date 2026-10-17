@@ -62,6 +62,8 @@ func (s *Server) startTaskEngine(t *Task) {
 	if ctx.Err() != nil || s.engine.IsDeleting(t.ID) {
 		return
 	}
+	// 拆解已完成（含失败回退/目标为空）：从此刻起 goalless 分支才有权判定收尾。
+	s.engine.markBootstrapDone(t.ID)
 	s.engine.Run(s.ctx, t)
 }
 
@@ -242,6 +244,12 @@ func (s *Server) startAdmittedTask(t *Task, mode string) {
 		if !s.engine.beginTaskOperation(t.ID) {
 			return
 		}
+		// 首轮拆解只允许一份：重复 resume、并发准入、重启恢复都不能写出重复目标。
+		if !s.engine.beginBootstrap(t.ID) {
+			s.engine.decInflight(t.ID)
+			log.Printf("[bootstrap] task %s 首轮目标拆解正在执行，跳过重复启动", t.ID)
+			return
+		}
 		// A first-run task may have kept the Engine pause barrier while waiting
 		// in the concurrency queue. Clear it only after operation admission, or
 		// startTaskEngine's first execContextFor call would return a cancelled
@@ -251,6 +259,8 @@ func (s *Server) startAdmittedTask(t *Task, mode string) {
 		}
 		go func() {
 			defer s.engine.decInflight(t.ID)
+			// 未走到 markBootstrapDone（暂停/删除打断）时释放占用，允许下次准入重试。
+			defer s.engine.endBootstrap(t.ID)
 			s.startTaskEngine(t)
 		}()
 		return

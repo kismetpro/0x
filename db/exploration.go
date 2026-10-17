@@ -1170,6 +1170,16 @@ WHERE exploration_id=$1 AND kind='goal' AND state='open')`, s.expID).Scan(&exist
 	return exists, err
 }
 
+// GoalCounts returns how many goals exist in total and how many are still open,
+// in one round trip. HasOpenGoal alone cannot tell "no goals yet" (the first goal
+// decomposition is still in flight) apart from "every goal settled" — callers that
+// finalize a task need that distinction.
+func (s *ExplorationStore) GoalCounts() (total, open int, err error) {
+	err = s.db.QueryRow(`SELECT count(*), count(*) FILTER (WHERE state='open')
+		FROM exploration_nodes WHERE exploration_id=$1 AND kind='goal'`, s.expID).Scan(&total, &open)
+	return total, open, err
+}
+
 // ClaimIntent atomically moves an open intent to running. Returns true if claimed.
 func (s *ExplorationStore) ClaimIntent(id int64, owner string) (bool, error) {
 	res, err := s.db.Exec(`UPDATE exploration_nodes SET state='running', owner=$1

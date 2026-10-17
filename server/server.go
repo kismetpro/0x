@@ -300,11 +300,26 @@ func (s *Server) restoreTaskRuntimes() {
 	// only the active UI task left other non-queued tasks counted as concurrency
 	// occupants without live loops, which could permanently block the persistent
 	// FIFO. Paused loops remain idle; queued tasks are admitted below as slots allow.
+	//
+	// 从未完成首轮目标拆解的任务不能在这里起循环：它的 planner 会在「还没有任何目标」
+	// 的空窗期跑一轮，把空窗期误判成「目标已全部达成」并收尾成 done。这类任务改为走一次
+	// bootstrap（先建目标再起循环）；暂停中的保持暂停，等用户继续时再拆解。
 	for _, t := range m.List() {
 		lifecycle := t.lifecycleSnapshot()
-		if !lifecycle.Queued && !isTerminalStatus(lifecycle.Status) {
-			s.engine.Run(s.ctx, t)
+		if lifecycle.Queued || isTerminalStatus(lifecycle.Status) {
+			continue
 		}
+		if taskHasBootstrapEvidence(t) {
+			s.engine.markBootstrapDone(t.ID)
+			s.engine.Run(s.ctx, t)
+			continue
+		}
+		if lifecycle.Paused {
+			log.Printf("[engine] task %s 尚无目标且处于暂停，等待继续时执行首轮目标拆解", t.ID)
+			continue
+		}
+		log.Printf("[engine] task %s 尚无目标，重启后补做首轮目标拆解", t.ID)
+		s.startAdmittedTask(t, "bootstrap")
 	}
 }
 

@@ -91,9 +91,10 @@ func retryableWorkerModelError(reason harness.TerminalReason, err error) bool {
 // (re)installed at runtime (LLM configured from the UI); the loops always run
 // but idle until an LLM is set.
 type Engine struct {
-	rounds   taskRoundScheduler
-	m        *Manager
-	debounce time.Duration
+	rounds    taskRoundScheduler
+	bootstrap bootstrapTracker
+	m         *Manager
+	debounce  time.Duration
 
 	bc *Broadcaster // live activity pub/sub (SSE)
 
@@ -290,6 +291,7 @@ func (e *Engine) StopTask(taskID string) {
 	delete(e.rounds.rounds, taskID)
 	delete(e.rounds.idle, taskID)
 	e.rounds.mu.Unlock()
+	e.forgetBootstrap(taskID)
 	e.deleteMu.Lock()
 	e.deleting.Delete(taskID)
 	e.deleteMu.Unlock()
@@ -865,19 +867,43 @@ func (e *Engine) plannerLoop(ctx context.Context, t *Task) {
 		// met→cancelExec 杀掉用户经主 agent 直投的意图。是否结束改由 frontier 决定：
 		// 还有 open/running 意图 → 保持 running、静默等待；意图已全部跑干 → 落 done。
 		// 整段纯 Go、不触发任何 LLM 调用，也不打规划轮 marker。
-		if open, err := t.Store.HasOpenGoal(); err == nil && !open {
-			t.drainTriggers() // 丢弃累积的 done/finding 触发，避免 goalless 长会话里无界增长
-			if active, err := t.Store.HasActiveIntent(); err == nil && !active {
-				// frontier 抽干且无在跑意图 → 收尾。用 Guarded 版做 CAS，避免踩到并发的
-				// pause/delete/超时收尾的状态转换。
-				if won, err := e.m.SetTaskStatusGuarded(t.ID, "done"); err != nil {
-					log.Printf("[goalless] task %s 收尾落 done 失败: %v", t.ID, err)
-				} else if won {
-					e.emitActivity(t, db.Activity{Worker: "system", Kind: "text",
-						Summary: "目标已全部达成，直投意图已执行完毕，任务结束"})
-				}
+		//
+		// 关键前提：必须等首轮目标拆解落库。否则「一个目标都还没建」会被当成
+		// 「所有目标都已达成」，把刚开始的任务直接收尾成 done（见 engine_bootstrap.go）。
+		totalGoals, openGoals, goalErr := t.Store.GoalCounts()
+		if goalErr != nil {
+			log.Printf("[goalless] task %s 读取目标状态失败，跳过本轮: %v", t.ID, goalErr)
+			return
+		}
+		activeIntent := false
+		if openGoals == 0 {
+			active, err := t.Store.HasActiveIntent()
+			if err != nil {
+				log.Printf("[goalless] task %s 读取意图状态失败，跳过本轮: %v", t.ID, err)
+				return
 			}
-			return // goalless 分支永不进入 planner.Plan
+			activeIntent = active
+		}
+		switch decideGoalless(e.bootstrapCompleted(t.ID), totalGoals, openGoals, activeIntent) {
+		case goallessPlan:
+			// 还有未了结的目标 → 落到下面正常规划。
+		case goallessWait:
+			e.noteBootstrapWait(t)
+			return // createGoals 写库后会 Notify 唤醒本轮
+		case goallessIdle:
+			t.drainTriggers() // 丢弃累积的 done/finding 触发，避免 goalless 长会话里无界增长
+			return
+		case goallessComplete:
+			t.drainTriggers()
+			// frontier 抽干且无在跑意图 → 收尾。用 Guarded 版做 CAS，避免踩到并发的
+			// pause/delete/超时收尾的状态转换。
+			if won, err := e.m.SetTaskStatusGuarded(t.ID, "done"); err != nil {
+				log.Printf("[goalless] task %s 收尾落 done 失败: %v", t.ID, err)
+			} else if won {
+				e.emitActivity(t, db.Activity{Worker: "system", Kind: "text",
+					Summary: "目标已全部达成，直投意图已执行完毕，任务结束"})
+			}
+			return
 		}
 		if !e.beginTaskOperation(t.ID) {
 			return
