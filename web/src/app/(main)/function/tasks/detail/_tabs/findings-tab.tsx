@@ -21,7 +21,7 @@ import { cn } from "@/lib/utils";
 type FindingSortField = "time";
 
 const FINDING_SORT_FIELDS: readonly FindingSortField[] = ["time"];
-const FINDING_SORT_PREFERENCE_KEY = "artex_task_findings_sort";
+const FINDING_SORT_PREFERENCE_KEY = "0x_task_findings_sort";
 
 function findingLabel(finding: Finding): string {
   if (finding.name?.trim()) return finding.name;

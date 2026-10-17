@@ -4,7 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/Autumn-27/artex/intercept"
+	"github.com/kismetpro/0x/intercept"
 	"strings"
 	"testing"
 )

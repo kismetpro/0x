@@ -14,13 +14,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Autumn-27/artex/agent"
-	pgdb "github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/enrich"
-	"github.com/Autumn-27/artex/guard"
-	"github.com/Autumn-27/artex/intercept"
-	"github.com/Autumn-27/artex/traffic"
 	actool "github.com/Autumn-27/norma/tool"
+	"github.com/kismetpro/0x/agent"
+	pgdb "github.com/kismetpro/0x/db"
+	"github.com/kismetpro/0x/enrich"
+	"github.com/kismetpro/0x/guard"
+	"github.com/kismetpro/0x/intercept"
+	"github.com/kismetpro/0x/traffic"
 )
 
 // Task is one engagement: a description + goal + its own exploration store,

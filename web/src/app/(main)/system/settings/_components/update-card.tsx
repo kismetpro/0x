@@ -72,7 +72,7 @@ export function UpdateCard() {
   // 轮询 /api/health 直到版本号变化。
   //
   // 判据必须是"版本变了"而不是"能连上了"：换装过程中旧版本会短暂地重新起来一次
-  // （那一次只负责把 artex.new 换上去然后立刻退出），只看连通性会误判成功。
+  // （那一次只负责把 0x.new 换上去然后立刻退出），只看连通性会误判成功。
   const waitForNewVersion = React.useCallback(async (fromVersion: string) => {
     setRestarting(true);
     const deadline = Date.now() + RESTART_TIMEOUT_MS;
@@ -94,7 +94,7 @@ export function UpdateCard() {
       }
     }
     setRestarting(false);
-    toast.error("等待服务重启超时。请检查后端日志，或确认 artex 是通过 start.sh / start.bat 启动的。");
+    toast.error("等待服务重启超时。请检查后端日志，或确认 0x 是通过 start.sh / start.bat 启动的。");
   }, []);
 
   // 订阅更新进度。SSE 不走 Next 的 /api 重写（那层会缓冲，事件推不出来）。
@@ -270,7 +270,7 @@ export function UpdateCard() {
             Docker 下的更新只替换程序本身，不更新镜像里的 playwright / nmap 等工具链，且
             <span className="font-mono"> docker compose up -d </span>
             重建容器后会退回镜像自带的版本。需要连镜像一起升级请执行
-            <span className="font-mono"> docker compose pull artex &amp;&amp; docker compose up -d artex</span>。
+            <span className="font-mono"> docker compose pull 0x &amp;&amp; docker compose up -d 0x</span>。
           </p>
         )}
 
@@ -306,7 +306,7 @@ export function UpdateCard() {
 
         <p className="text-xs text-muted-foreground">
           一键更新依赖守护脚本重启程序。请通过 <span className="font-mono">start.sh</span>（Windows 为
-          <span className="font-mono"> start.bat</span>）启动 ARTEX；直接运行 artex 本体时，程序退出后不会被自动拉起。
+          <span className="font-mono"> start.bat</span>）启动 0x；直接运行 0x 本体时，程序退出后不会被自动拉起。
         </p>
       </CardContent>
     </Card>

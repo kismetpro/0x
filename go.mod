@@ -1,4 +1,4 @@
-module github.com/Autumn-27/artex
+module github.com/kismetpro/0x
 
 go 1.26.3
 

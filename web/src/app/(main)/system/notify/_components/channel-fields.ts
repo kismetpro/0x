@@ -108,7 +108,7 @@ export const CHANNEL_FIELDS: Record<string, FieldDef[]> = {
     },
     { key: "username", label: "账号", kind: "text" },
     { key: "password", label: "密码 / 授权码", kind: "password" },
-    { key: "from", label: "发件人", kind: "text", placeholder: "artex@example.com" },
+    { key: "from", label: "发件人", kind: "text", placeholder: "0x@example.com" },
     { key: "to", label: "收件人", kind: "list", help: "多个地址用逗号分隔" },
     { key: "tls", label: "隐式 TLS", kind: "switch", help: "465 端口打开；587 保持关闭（会自动 STARTTLS）" },
   ],

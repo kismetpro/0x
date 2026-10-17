@@ -10,15 +10,15 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/intercept"
+	"github.com/kismetpro/0x/db"
+	"github.com/kismetpro/0x/intercept"
 	"modernc.org/sqlite"
 )
 
 func TestJudgeConfigIncompleteScriptDefaultAndOverride(t *testing.T) {
-	dsn := os.Getenv("ARTEX_PG_DSN")
+	dsn := os.Getenv("ZEROX_PG_DSN")
 	if dsn == "" {
-		t.Skip("requires isolated ARTEX_PG_DSN")
+		t.Skip("requires isolated ZEROX_PG_DSN")
 	}
 	pg, err := db.Open(dsn)
 	if err != nil {

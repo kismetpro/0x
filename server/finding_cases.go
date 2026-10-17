@@ -9,9 +9,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/intercept"
 	actool "github.com/Autumn-27/norma/tool"
+	"github.com/kismetpro/0x/db"
+	"github.com/kismetpro/0x/intercept"
 )
 
 type findingCaseRequest struct {

@@ -12,11 +12,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Autumn-27/artex/agent"
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/llmrec"
 	"github.com/Autumn-27/norma/llm"
 	"github.com/Autumn-27/norma/transcript"
+	"github.com/kismetpro/0x/agent"
+	"github.com/kismetpro/0x/db"
+	"github.com/kismetpro/0x/llmrec"
 )
 
 type taskAgentBundle struct {

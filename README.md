@@ -1,21 +1,54 @@
 <div align="center">
 
-# ARTEX
+# 0x
 
 AI 自主渗透测试系统（Go 后端 + Next.js 前端）
 
 
-🌐 **在线 Demo**： [https://artex-demo-ruoji6.vercel.app/](https://artex-demo-ruoji6.vercel.app/)
+🌐 **在线 Demo（上游）**： [https://artex-demo-ruoji6.vercel.app/](https://artex-demo-ruoji6.vercel.app/)
 
 </div>
 
-本仓库为独立维护的 [RuoJi6/ARTEX](https://github.com/RuoJi6/ARTEX)，保留 https://github.com/Autumn-27/ARTEX 的原始提交历史与 AGPL-3.0 许可证。程序发布包从本仓库 Releases 下载，Docker 镜像 [ruoji6/artex](https://hub.docker.com/r/ruoji6/artex) 由本仓库 GitHub Actions 构建并发布。
+本仓库是 [RuoJi6/ARTEX](https://github.com/RuoJi6/ARTEX) 的二次开发分支（fork），保留上游的原始提交历史与 **AGPL-3.0** 许可证。相对上游的主要改动是**改名与共存适配**：程序名、镜像、环境变量、端口、Cookie、数据卷全部换成 0x 自己的标识，因此可以和原版 ARTEX 部署在同一台机器上互不干扰。
+
+- 程序发布包：本仓库 [Releases](https://github.com/kismetpro/0x/releases)
+- Docker 镜像：[kismetpro/0x](https://hub.docker.com/r/kismetpro/0x)，由本仓库 GitHub Actions 构建发布
+- 在线更新源：本仓库 Releases（不再指向原作者仓库）
+
+> 下文截图与「在线 Demo」均来自上游界面，除品牌标识外与本仓库一致。
+
+## 与原版 ARTEX 共存
+
+0x 与原版 ARTEX 的标识、端口、状态全部错开，可以在同一台机器上同时部署、同时运行：
+
+| 项目 | 原版 ARTEX | 0x |
+| --- | --- | --- |
+| 可执行文件 | `artex` / `artex.exe` | `0x` / `0x.exe` |
+| 环境变量前缀 | `ARTEX_` | `ZEROX_`（`0X_` 不是合法 shell 变量名，故展开为 `ZEROX_`） |
+| 界面 / API 端口 | 8787 | **9887** |
+| 流量录制代理端口 | 8788 | **9888** |
+| 登录 Cookie | `artex_token` / `artex_basic_auth` | `zerox_token` / `zerox_basic_auth` |
+| Docker 镜像 | `ruoji6/artex` | `kismetpro/0x` |
+| Compose 工程 / 容器 | `artex` | `0x`（容器 `0x`、`0x-postgres`） |
+| Postgres 数据卷 | `pgdata` | `0x-pgdata` |
+| Postgres 角色 / 库 | `artex` | `zerox` |
+| 本地 Postgres 宿主端口 | 5432 | 5433 |
+| 在线更新源 | `RuoJi6/ARTEX` | `kismetpro/0x` |
+| 一键更新中间产物 | `artex.new` / `artex.old` / `artex.upgrade.json` | `0x.new` / `0x.old` / `0x.upgrade.json` |
+
+注意事项：
+
+- **Cookie 必须区分**：浏览器不区分端口，`localhost:8787` 与 `localhost:9887` 共用同一 Cookie 域；两套系统 Cookie 名不同，才能同时登录而不互踢。
+- **各自独立部署目录**：数据目录是「可执行文件同级的 `data/`」（`jwt.key`、任务工作区等），装在不同目录即可互不覆盖；也可用 `-data` 显式指定。
+- **共用同一台 Postgres 服务器**时使用不同角色/库名（默认 `zerox`），不要与原版的 `artex` 库共用。
+- **不要把 0x 指向原版正在使用的数据库和 data 目录**：两边的端口、Cookie、更新源都不同，混用会出现登录态互踢、在线更新互相覆盖等问题。
+- 从原版**迁移**（而非并存）可以直接复用原库与原 `data/`：表结构与 `jwt.key` 兼容，登录用户名改为 `0x`，密码不变。
 
 ---
 
 ## 截图预览
 
-> 完整交互见[在线 Demo](https://artex-demo-ruoji6.vercel.app/)。
+> 以下截图为上游 ARTEX 的界面（本仓库仅品牌标识不同），完整交互见[上游在线 Demo](https://artex-demo-ruoji6.vercel.app/)。
 
 | 仪表盘（总览 / Token 消耗 / 活动流） | 任务列表 |
 | :---: | :---: |
@@ -51,7 +84,7 @@ AI 自主渗透测试系统（Go 后端 + Next.js 前端）
 ## 审批记录详情
 
 全局「审批记录」、任务内「拦截审批」及对话中的审批卡片均支持展开查看详情。展示结构参考
-[AegisHook 的审批详情组件](https://github.com/RuoJi6/AegisHook/blob/main/web/src/components/CallDetail.vue)，沿用 ARTEX 的组件和主题：
+[AegisHook 的审批详情组件](https://github.com/RuoJi6/AegisHook/blob/main/web/src/components/CallDetail.vue)，沿用 0x 的组件和主题：
 
 
 ## 资产同步（ScopeSentry）
@@ -60,7 +93,7 @@ AI 自主渗透测试系统（Go 后端 + Next.js 前端）
 
 - 在「**资产同步**」页填 ScopeSentry 的地址与 API Key，接入数据源；
 - 按**项目**或**任务**维度选择要同步的目标与资产类型（域名 / 子域 / IP / 端口 / 站点 / 端点…）；
-- 一键导入并按公司资产范围归并，直接进入 ARTEX 的资产图供 agent 探索使用。
+- 一键导入并按公司资产范围归并，直接进入 0x 的资产图供 agent 探索使用。
 
 ---
 
@@ -72,7 +105,7 @@ Demo 只运行 `web/` 前端，构建时启用 `NEXT_PUBLIC_MOCK=1`，不需要 
 
 ### 首次配置 Vercel
 
-1. 在自己的 Vercel 账号创建空项目，设置名称（例如 `artex-demo-ruoji6`）。保持 **Git 未连接**，避免每次提交都自动部署。`web/vercel.json` 也禁用了 Git 自动部署。
+1. 在自己的 Vercel 账号创建空项目，设置名称（例如 `0x-demo`）。保持 **Git 未连接**，避免每次提交都自动部署。`web/vercel.json` 也禁用了 Git 自动部署。
 2. 在 **Settings → Build and Deployment** 中选择 **Next.js**、Node.js **22.x**，安装命令可覆盖为 `npm ci`，构建命令为 `npm run build`，Output Directory 保持默认。**Root Directory 留空**：此工作流从检出的 `web/` 目录调用 Vercel CLI，不能再填一层 `web`。
 3. 在项目的 **Environment Variables** 中添加 `NEXT_PUBLIC_MOCK=1`，至少应用于 **Production**。不要设置 `NEXT_EXPORT=1`，也不要填写数据库连接或模型密钥。
 4. 在项目 **Settings → General** 复制 **Project ID**；在团队 **Settings → General** 复制 **Team ID**（对应 `VERCEL_ORG_ID`）。确认 **Domains** 中有准备使用的生产域名。
@@ -84,7 +117,7 @@ Demo 只运行 `web/` 前端，构建时启用 `NEXT_PUBLIC_MOCK=1`，不需要 
 | --- | --- |
 | `VERCEL_ORG_ID` | Vercel Team ID |
 | `VERCEL_PROJECT_ID` | Vercel Project ID |
-| `DEMO_URL` | 固定公开生产网址，含 `https://`，例如 `https://artex-demo-ruoji6.vercel.app` |
+| `DEMO_URL` | 固定公开生产网址，含 `https://`，例如 `https://0x-demo.vercel.app` |
 
 ### 首次部署与重试
 
@@ -107,8 +140,8 @@ Demo 只运行 `web/` 前端，构建时启用 `NEXT_PUBLIC_MOCK=1`，不需要 
 ### 方式一：一键安装脚本（推荐）
 
 ```bash
-git clone https://github.com/RuoJi6/ARTEX.git
-cd ARTEX
+git clone https://github.com/kismetpro/0x.git
+cd 0x
 ./install.sh
 ```
 
@@ -117,21 +150,21 @@ cd ARTEX
 - **① 全部 Docker**：填一个 Postgres 密码（可回车随机）→ 自动写 `.env` → `docker compose up -d`。
 - **② 本地运行**：选数据库（连已有 / 用 Docker 起一个）→ 生成 `config.json` → `go` 编译内嵌单二进制 → 启动。
 
-装好后打开 **http://localhost:8787**（首次进入 `/setup` 设置管理员密码）。
+装好后打开 **http://localhost:9887**（首次进入 `/setup` 设置管理员密码）。
 
 ### 方式二：Docker Compose（手动）
 
 ```bash
-git clone https://github.com/RuoJi6/ARTEX.git
-cd ARTEX
+git clone https://github.com/kismetpro/0x.git
+cd 0x
 cp .env.example .env          # 填 POSTGRES_PASSWORD、可选 ANTHROPIC_API_KEY
-docker compose up -d          # 拉取 ruoji6/artex 镜像 + postgres
-# → http://localhost:8787
+docker compose up -d          # 拉取 kismetpro/0x 镜像 + postgres
+# → http://localhost:9887
 ```
 
 镜像已含常用工具（ripgrep/curl/vim/npm/nmap…）；`./skills` 与 `./data` 以绑定挂载持久化。
 
-`.env` 中默认 `ARTEX_IMAGE=ruoji6/artex`，`ARTEX_TAG=latest` 使用最新镜像，也可固定为 `v0.3.17`（完整镜像地址 `ruoji6/artex:v0.3.17`）。镜像支持 `linux/amd64` 和 `linux/arm64`，Docker 会自动选择与宿主机匹配的架构，ARM64 Kali 无需自行编译。初次部署请修改 `POSTGRES_PASSWORD`；运行服务无需配置 Docker Hub 发布 Token。
+`.env` 中默认 `ZEROX_IMAGE=kismetpro/0x`，`ZEROX_TAG=latest` 使用最新镜像，也可固定为 `v0.3.17`（完整镜像地址 `kismetpro/0x:v0.3.17`）。镜像支持 `linux/amd64` 和 `linux/arm64`，Docker 会自动选择与宿主机匹配的架构，ARM64 Kali 无需自行编译。初次部署请修改 `POSTGRES_PASSWORD`；运行服务无需配置 Docker Hub 发布 Token。
 
 远程 MCP 可在系统设置中选择 `http`（Streamable HTTP）或 `sse`（旧版 SSE）。
 旧版 SSE 服务通常使用 `GET /sse` 建立事件流，再通过服务返回的
@@ -140,15 +173,15 @@ docker compose up -d          # 拉取 ruoji6/artex 镜像 + postgres
 
 ### 方式三：下载预编译二进制（Releases）
 
-到本仓库的 [Releases](https://github.com/RuoJi6/ARTEX/releases) 下载对应平台的 zip，解压后得到 `artex` + `start.sh`（Windows 为 `start.bat`）+ `skills/` + `config.example.json`。Linux ARM64（包括 ARM64 Kali）选择 `linux-arm64`，x86_64 选择 `linux-amd64`：
+到本仓库的 [Releases](https://github.com/kismetpro/0x/releases) 下载对应平台的 zip，解压后得到 `0x` + `start.sh`（Windows 为 `start.bat`）+ `skills/` + `config.example.json`。Linux ARM64（包括 ARM64 Kali）选择 `linux-arm64`，x86_64 选择 `linux-amd64`：
 
 ```bash
 cp config.example.json config.json   # 填好 database 连接
-./start.sh                           # → http://localhost:8787
+./start.sh                           # → http://localhost:9887
 ```
 
-> 请用 `start.sh` / `start.bat` 启动，而不是直接跑 `./artex`。它是个守护脚本：程序退出后按退出码决定是否重新拉起，**页面上的[一键更新](#方式一页面一键更新推荐)靠它完成换装**。直接运行 `./artex` 时更新完就不会被拉起了。
-> 后台常驻：`nohup ./start.sh >artex.log 2>&1 &`。
+> 请用 `start.sh` / `start.bat` 启动，而不是直接跑 `./0x`。它是个守护脚本：程序退出后按退出码决定是否重新拉起，**页面上的[一键更新](#方式一页面一键更新推荐)靠它完成换装**。直接运行 `./0x` 时更新完就不会被拉起了。
+> 后台常驻：`nohup ./start.sh >0x.log 2>&1 &`。
 
 ### 方式四：从源码编译单二进制
 
@@ -158,7 +191,7 @@ cd web && npm ci && npm run build:static && cd ..
 # 2) 拷进内嵌目录
 cp -r web/out server/webui/dist
 # 3) 编译（-tags embedui 才内嵌前端）
-CGO_ENABLED=0 go build -tags embedui -o artex ./cmd/artex
+CGO_ENABLED=0 go build -tags embedui -o 0x ./cmd/0x
 ./start.sh
 ```
 
@@ -168,13 +201,13 @@ CGO_ENABLED=0 go build -tags embedui -o artex ./cmd/artex
 
 ```bash
 ./build.sh --release
-# 产物：dist/artex-0.3.3-*.zip
+# 产物：dist/0x-0.3.3-*.zip
 ```
 
-UPX 自解压二进制可能与部分 Linux 内核、虚拟化环境或安全策略不兼容，因此默认不启用。可用 `ARTEX_TARGETS` 自定义目标；确认目标运行环境兼容时，可显式传入 `--upx` 进一步缩小二进制：
+UPX 自解压二进制可能与部分 Linux 内核、虚拟化环境或安全策略不兼容，因此默认不启用。可用 `ZEROX_TARGETS` 自定义目标；确认目标运行环境兼容时，可显式传入 `--upx` 进一步缩小二进制：
 
 ```bash
-ARTEX_TARGETS=linux/amd64,windows/amd64 ./build.sh --release
+ZEROX_TARGETS=linux/amd64,windows/amd64 ./build.sh --release
 ./build.sh --target linux/amd64 --upx
 ```
 
@@ -182,21 +215,21 @@ ARTEX_TARGETS=linux/amd64,windows/amd64 ./build.sh --release
 
 ## 更新升级
 
-> 升级只换程序、不动数据：Postgres 数据卷 `pgdata`、`./data`（jwt.key / SQLite 等）、`./skills` 都会保留。**数据库迁移无需手动执行**——`artex` 每次启动会幂等重跑 `schema.sql`（含 `ADD COLUMN` / `CREATE INDEX IF NOT EXISTS`），即“重启即迁移”。升级前仍建议先备份 `./data` 与数据库。
+> 升级只换程序、不动数据：Postgres 数据卷 `0x-pgdata`、`./data`（jwt.key、任务工作区等）、`./skills` 都会保留。**数据库迁移无需手动执行**——`0x` 每次启动会幂等重跑 `schema.sql`（含 `ADD COLUMN` / `CREATE INDEX IF NOT EXISTS`），即“重启即迁移”。升级前仍建议先备份 `./data` 与数据库。
 
 ### 方式一：页面一键更新（推荐）
 
 在 **系统配置** 页（侧边栏「系统配置」→ `/system/settings`）的**版本与更新**卡片里，可以直接检查并安装新版本，无需登录服务器。
 
-本仓库构建的程序固定从 `RuoJi6/ARTEX` 的最新正式 GitHub Release 检查更新，跳过草稿和预发布版本。旧版官方程序仍指向原作者仓库，因此首次切换必须手动安装本仓库构建的程序；以后发布更高的三段式版本即可通过页面升级。仅推送 main 或 Git 标签但未发布 Release，不会产生可在线安装的新版本。
+本仓库构建的程序固定从 `kismetpro/0x` 的最新正式 GitHub Release 检查更新，跳过草稿和预发布版本。旧版官方程序仍指向原作者仓库，因此首次切换必须手动安装本仓库构建的程序；以后发布更高的三段式版本即可通过页面升级。仅推送 main 或 Git 标签但未发布 Release，不会产生可在线安装的新版本。
 
-点「更新」后：下载当前平台的发布包 → 比对 Release 的 `SHA256SUMS` → 用 `-h` 冒烟测试新二进制 → 暂存为 `artex.new` → 程序退出，由 `start.sh` / `start.bat` 重新拉起并完成换装。页面会自动等到新版本上线后刷新。
+点「更新」后：下载当前平台的发布包 → 比对 Release 的 `SHA256SUMS` → 用 `-h` 冒烟测试新二进制 → 暂存为 `0x.new` → 程序退出，由 `start.sh` / `start.bat` 重新拉起并完成换装。页面会自动等到新版本上线后刷新。
 
-- **失败不会留下坏程序**：校验或冒烟不通过就丢弃暂存件、继续跑当前版本；换装后的新版若连续 3 次启动失败，会自动回滚到 `artex.old`（失败的那个留作 `artex.failed` 供排查）。
-- **随时可回退**：上一版本保留为 `artex.old`，卡片上有「回滚到上一版本」。注意数据库结构不会回退。
+- **失败不会留下坏程序**：校验或冒烟不通过就丢弃暂存件、继续跑当前版本；换装后的新版若连续 3 次启动失败，会自动回滚到 `0x.old`（失败的那个留作 `0x.failed` 供排查）。
+- **随时可回退**：上一版本保留为 `0x.old`，卡片上有「回滚到上一版本」。注意数据库结构不会回退。
 - **更新会中断正在运行的任务**——更新即重启，请在空闲时进行。
 - **开发构建不给更新**：版本号是 `dev` 或 `git describe` 带后缀时禁用，避免正式版覆盖掉本地调试的二进制。
-- **Docker 下只换程序、不换镜像**：镜像里的 playwright / nmap 等工具链不会跟着升级，且 `docker compose up -d` 重建容器后会退回镜像自带的版本。要连镜像一起升级仍请用 `docker compose pull artex && docker compose up -d artex`。
+- **Docker 下只换程序、不换镜像**：镜像里的 playwright / nmap 等工具链不会跟着升级，且 `docker compose up -d` 重建容器后会退回镜像自带的版本。要连镜像一起升级仍请用 `docker compose pull 0x && docker compose up -d 0x`。
 - 访问 GitHub 需要代理时，在同一页面配置**全局代理**即可，更新链路会走它。更新只从 GitHub 域名下载并强制 HTTPS。
 
 ### 维护者：通过 GitHub Actions 发布在线更新
@@ -211,74 +244,60 @@ git push origin v0.3.17
 
 工作流固定标签对应的提交，用 Node.js 22 导出前端，按照 `go.mod` 指定的 Go 版本编译内嵌前端的五个平台程序，并生成 ZIP 与 `SHA256SUMS`。AMD64 和 ARM64 镜像分别在 GitHub 原生 runner 上构建，连接临时 PostgreSQL 验证程序启动、版本和内嵌前端；两种架构都通过后发布多架构镜像的版本标签与 `latest`。镜像发布成功后上传完整 ZIP 和校验文件，最后公开 Release。已公开的同版本不允许覆盖，应发布新标签。
 
-维护者需在本仓库 Settings → Secrets and variables → Actions 中配置变量 `ARTEX_DOCKER_IMAGE`（Docker Hub 用户名/镜像名）和 Secrets `DOCKERHUB_USERNAME`、`DOCKERHUB_TOKEN`（有镜像推送权限）。程序包通过 GitHub 自带 `GITHUB_TOKEN` 上传，镜像通过上述凭据推送到 Docker Hub。凭据只供工作流登录使用，不写入源码或镜像。镜像地址同时记录在 `.env.example` 和 Compose 默认值中。
+维护者需在本仓库 Settings → Secrets and variables → Actions 中配置变量 `ZEROX_DOCKER_IMAGE`（Docker Hub 用户名/镜像名）和 Secrets `DOCKERHUB_USERNAME`、`DOCKERHUB_TOKEN`（有镜像推送权限）。程序包通过 GitHub 自带 `GITHUB_TOKEN` 上传，镜像通过上述凭据推送到 Docker Hub。凭据只供工作流登录使用，不写入源码或镜像。镜像地址同时记录在 `.env.example` 和 Compose 默认值中。
 
-### 已有 Docker 部署迁移到本仓库镜像
+### 从原版 ARTEX 迁移到 0x
 
-在原部署目录中备份 `.env`、Compose 文件、`data/` 和 PostgreSQL 数据，保留原数据库卷和 skills 挂载。将 `.env` 的 `ARTEX_IMAGE` 设置为本仓库镜像地址、`ARTEX_TAG` 设置为目标版本；如果旧 Compose 仍写死原作者的镜像，可创建下列覆盖文件（已有覆盖文件时应合并 image 配置）：
+按是否需要保留原数据库 / 原数据二选一：
 
-```yaml
-# docker-compose.override.yml
-services:
-  artex:
-    image: ${ARTEX_IMAGE}:${ARTEX_TAG:-latest}
-```
+**① 并存部署（推荐）**：在独立目录按上面的「安装」部署 0x，使用新的 Postgres 角色与库（默认 `zerox`）。原版实例继续跑，端口、Cookie、容器、数据卷互不影响，确认无误后再择机下线原版。
 
-然后只更新应用容器：
-
-```bash
-docker compose pull artex
-docker compose up -d --no-deps artex
-curl --fail http://127.0.0.1:8787/api/health
-docker compose logs --tail=50 artex
-```
-
-继续使用原部署目录和 Compose 项目名称，确保 `./data`、`./skills` 和 PostgreSQL 数据卷仍指向原数据。迁移后程序从 `RuoJi6/ARTEX` 检查在线更新；后续可用页面更新程序或上述命令更新整个镜像。
-
-首次迁移已有 Docker 部署时，将已校验的新 ARM64 ZIP 解压到宿主机，备份原程序，然后只替换已有容器中的 `/app/artex`。例如现有容器名为 `artex-artex-1`：
+**② 就地替换程序（保留原数据）**：原部署目录、`./data`、`./skills` 与 Postgres 数据都不动，只把 0x 程序换进容器。原版镜像的启动脚本是 `/app/start.sh` → `/app/artex`，因此二进制要替换成 `/app/artex` 这个名字，程序仍监听 8787/8788；登录用户名改为 `0x`，密码不变：
 
 ```bash
 # 在下载目录运行；先按 SHA256SUMS 核对下载的 ZIP，再解压。
 sha256sum --ignore-missing --check SHA256SUMS
-unzip artex-0.3.17-linux-arm64.zip
-sudo docker stop artex-artex-1
-sudo docker cp artex-artex-1:/app/artex ./artex-before-migration
-sudo docker cp ./artex-0.3.17-linux-arm64/artex artex-artex-1:/app/artex
-sudo docker start artex-artex-1
+unzip 0x-<版本>-linux-arm64.zip
+sudo docker stop <原容器名>              # 原版 compose 默认是 artex-artex-1
+sudo docker cp <原容器名>:/app/artex ./artex-before-migration
+sudo docker cp ./0x-<版本>-linux-arm64/0x <原容器名>:/app/artex
+sudo docker start <原容器名>
 curl --fail http://127.0.0.1:8787/api/health
 ```
 
-这会保留现有数据库、data 和 skills 挂载。登录系统配置页检查更新源与版本。容器内替换的程序仍属于容器可写层，删除或重建容器会丢失替换结果；需要重建时应使用包含本仓库程序的镜像。程序回滚不回退数据库迁移，升级前请备份数据库和 data。
+换成 0x 程序后，页面在线更新会从本仓库 Releases 拉包换装；数据库结构不变，无需手工迁移，程序回滚也不会回退数据库。容器内的替换属于容器可写层，删除或重建容器会丢失：需要重建时请改用本仓库镜像，并同步把 CMD / 端口、环境变量名换成 `ZEROX_*` 与 9887 / 9888。
+
+> 想真正「与原版并存」请走 ①：不要在两个实例之间共用同一个数据库和 `data/`。
 
 ### 方式二：一键更新脚本
 
 ```bash
-cd ARTEX
+cd 0x
 ./update.sh
 ```
 
 脚本先可选 `git pull` 拉取最新代码，再让你选 **① Docker 更新** 或 **② 本地编译更新**（与 `install.sh` 对应）：
 
-- **① Docker**：可指定目标镜像 tag（回车沿用 `.env` 的 `ARTEX_TAG`，缺省 `latest`）→ `docker compose pull` → `docker compose up -d`（换新镜像重启即自动迁移）。
-- **② 本地**：重建前端静态产物 → 重新编译 `./artex`（完成后重启进程生效）。
+- **① Docker**：可指定目标镜像 tag（回车沿用 `.env` 的 `ZEROX_TAG`，缺省 `latest`）→ `docker compose pull` → `docker compose up -d`（换新镜像重启即自动迁移）。
+- **② 本地**：重建前端静态产物 → 重新编译 `./0x`（完成后重启进程生效）。
 
 ### 方式三：Docker Compose（手动）
 
 ```bash
-cd ARTEX
+cd 0x
 git pull                       # 更新 compose / 脚本（可选）
-# 指定版本：在 .env 设 ARTEX_TAG=v0.3.17；不设则用 latest
-docker compose pull artex
-docker compose up -d artex     # 换新镜像重启 → 自动迁移 schema
+# 指定版本：在 .env 设 ZEROX_TAG=v0.3.17；不设则用 latest
+docker compose pull 0x
+docker compose up -d 0x     # 换新镜像重启 → 自动迁移 schema
 docker image prune -f          # 清理旧镜像（可选）
 ```
 
 ### 方式四：预编译二进制（Releases）
 
-到 [Releases](https://github.com/RuoJi6/ARTEX/releases) 下载新版本 zip，停掉旧进程后覆盖 `artex` 与 `skills/`（保留你的 `config.json` 与 `data/`），重启即可：
+到 [Releases](https://github.com/kismetpro/0x/releases) 下载新版本 zip，停掉旧进程后覆盖 `0x` 与 `skills/`（保留你的 `config.json` 与 `data/`），重启即可：
 
 ```bash
-cp -r <解压目录>/skills ./ && cp <解压目录>/artex ./
+cp -r <解压目录>/skills ./ && cp <解压目录>/0x ./
 ./start.sh
 ```
 
@@ -288,7 +307,7 @@ cp -r <解压目录>/skills ./ && cp <解压目录>/artex ./
 git pull
 cd web && npm ci && npm run build:static && cd ..
 cp -r web/out server/webui/dist
-CGO_ENABLED=0 go build -tags embedui -o artex ./cmd/artex
+CGO_ENABLED=0 go build -tags embedui -o 0x ./cmd/0x
 # 重启 ./start.sh
 ```
 
@@ -296,36 +315,36 @@ CGO_ENABLED=0 go build -tags embedui -o artex ./cmd/artex
 
 ## 配置
 
-**数据库**（`config.json`，或用环境变量 `ARTEX_PG_DSN` 覆盖）：
+**数据库**（`config.json`，或用环境变量 `ZEROX_PG_DSN` 覆盖）：
 
 ```json
 {
   "database": {
     "host": "127.0.0.1", "port": 5432,
-    "user": "artex", "password": "yourpass",
-    "dbname": "artex", "sslmode": "disable"
+    "user": "0x", "password": "yourpass",
+    "dbname": "0x", "sslmode": "disable"
   }
 }
 ```
 
 **LLM**：`export ANTHROPIC_API_KEY=sk-...`（或 `OPENAI_API_KEY`），也可在 UI 的「LLM 配置」页填写。
-可选：`ARTEX_LLM_PROVIDER` / `ARTEX_LLM_MODEL` / `ARTEX_LLM_BASE_URL` / `ARTEX_LLM_PROXY`。
+可选：`ZEROX_LLM_PROVIDER` / `ZEROX_LLM_MODEL` / `ZEROX_LLM_BASE_URL` / `ZEROX_LLM_PROXY`。
 
 **并发**：每个任务的 work agent 数在「系统设置」里配置（默认 3）。
 
-**常用参数**：`./start.sh -addr :8787 -proxy :8788`（`-addr` 前端+API，`-proxy` 流量录制代理）。启动脚本会把参数原样透传给 `artex`。
+**常用参数**：`./start.sh -addr :9887 -proxy :9888`（`-addr` 前端+API，`-proxy` 流量录制代理）。启动脚本会把参数原样透传给 `0x`。
 
 ### 可选的 HTTP Basic Auth 访问验证
 
 在 **系统配置 → HTTP Basic Auth** 中填写独立的验证用户名和密码，打开「启用访问验证」并点击「保存访问验证」。默认关闭，保存后立即生效，无需重启；密码至少 8 位、最多 72 字节，用户名不能包含冒号。
 
-开启后，访客先完成浏览器原生账号密码验证，再进入原有 ARTEX 登录页。网页、静态资源和 API 均受保护，`/api/health` 健康检查保留公开访问；通过访问验证仍需登录 ARTEX 才能使用业务 API。公网部署请通过 HTTPS 访问。
+开启后，访客先完成浏览器原生账号密码验证，再进入原有 0x 登录页。网页、静态资源和 API 均受保护，`/api/health` 健康检查保留公开访问；通过访问验证仍需登录 0x 才能使用业务 API。公网部署请通过 HTTPS 访问。
 
 配置持久化到数据库，密码仅保存 bcrypt 哈希，界面不会回显。保存时密码留空表示不修改；关闭后保留凭据，方便再次开启。独立的 HttpOnly 验证 Cookie 有效期为 12 小时，兼容现有 JWT 和 SSE；保存配置会使其他浏览器的旧验证 Cookie 失效，当前管理员浏览器保持访问。浏览器可能缓存 Basic Auth 凭据，可用新的无痕窗口检查验证弹窗。
 
 Docker 和内嵌前端二进制直接支持此功能。`next dev` 的认证检查仅向本机回环后端转发凭据（`localhost`、`127.0.0.1` 或 `::1`）；前端与后端应使用同一主机名。远程开发后端未开启验证时仍可使用；开启后请通过内嵌前端访问远程服务，避免跨域验证 Cookie 问题。
 
-若遗忘独立验证密码，可在服务器连接应用数据库后执行以下语句并重启 ARTEX，关闭这层访问验证，再用原有 ARTEX 账号登录后重新配置：
+若遗忘独立验证密码，可在服务器连接应用数据库后执行以下语句并重启 0x，关闭这层访问验证，再用原有 0x 账号登录后重新配置：
 
 ```sql
 UPDATE settings
@@ -336,7 +355,7 @@ WHERE key = 'auth.http_basic';
 
 ### 反向代理部署（HTTPS / 只开放 443）
 
-前端和 API/SSE 都由同一个后端端口（默认 `:8787`）提供，实时活动流默认走**同源**地址，因此**无需配置 `NEXT_PUBLIC_SSE_BASE`**，公网只开放 443、把 8787 留在内网即可。
+前端和 API/SSE 都由同一个后端端口（默认 `:9887`）提供，实时活动流默认走**同源**地址，因此**无需配置 `NEXT_PUBLIC_SSE_BASE`**，公网只开放 443、把 9887 留在内网即可。
 
 SSE 是长连接 + 持续推送，反代**必须关闭缓冲**，否则浏览器能连上却收不到事件（表现为活动流一直转圈）。Nginx 示例：
 
@@ -347,7 +366,7 @@ server {
     # ssl_certificate / ssl_certificate_key ...
 
     location / {
-        proxy_pass http://127.0.0.1:8787;
+        proxy_pass http://127.0.0.1:9887;
         proxy_set_header Host $host;
         proxy_set_header X-Forwarded-Proto $scheme;
 
@@ -392,10 +411,10 @@ server {
 ### 本地运行与测试
 
 ```bash
-./dev.sh    # 后端(:8787) + 流量代理(:8788) + 前端 next dev(:5173) → http://localhost:5173
+./dev.sh    # 后端(:9887) + 流量代理(:9888) + 前端 next dev(:5173) → http://localhost:5173
 ```
 
-- 后端：`go run ./cmd/artex`（不带 `-tags embedui` 则不内嵌前端）
+- 后端：`go run ./cmd/0x`（不带 `-tags embedui` 则不内嵌前端）
 - 前端：`cd web && npm run dev`（`/api` 反代到后端，带热更新）
 - 测试：`go test ./...`
 - Mock 预览（无后端）：`cd web && NEXT_PUBLIC_MOCK=1 npm run dev`
@@ -404,7 +423,7 @@ server {
 
 ## 系统技术架构
 
-ARTEX 是一套 **LLM 多 agent 驱动的自主渗透系统**：Go 单体后端（内嵌 Next.js 前端）+ PostgreSQL，agent 能力由 [`norma`](https://github.com/Autumn-27/norma) SDK 提供（`agentcore` / `tool` / `permission` / `harness` / `memory` / `transcript`）。核心是**双图架构**，以及围绕它的两条自主性机制：**worker 间过程级信息交换**与 **planner 多轮共享 todolist 稳定攻击链路**。
+0x 是一套 **LLM 多 agent 驱动的自主渗透系统**：Go 单体后端（内嵌 Next.js 前端）+ PostgreSQL，agent 能力由 [`norma`](https://github.com/Autumn-27/norma) SDK 提供（`agentcore` / `tool` / `permission` / `harness` / `memory` / `transcript`）。核心是**双图架构**，以及围绕它的两条自主性机制：**worker 间过程级信息交换**与 **planner 多轮共享 todolist 稳定攻击链路**。
 
 ### 总体分层
 
@@ -568,11 +587,13 @@ flowchart TB
   R3["第 3 轮（②产出 fact）　派意图③"] --> T3
 ```
 
-于是攻击链在“事件驱动 + 无状态会话”的环境下依然**稳定推进、不重复、不错序**——这是 ARTEX 能自主走完多步利用链的关键。
+于是攻击链在“事件驱动 + 无状态会话”的环境下依然**稳定推进、不重复、不错序**——这是 0x 能自主走完多步利用链的关键。
 
 ---
 
-## 交流群
+## 上游社区
+
+以下为原版 ARTEX 作者（RuoJi6）的社区入口，0x 的问题请优先提在本仓库的 [Issues](https://github.com/kismetpro/0x/issues)。
 
 扫码关注微信公众号 **SecSentry**，在公众号后台私信即可入群交流。
 
@@ -592,13 +613,13 @@ https://github.com/oritera/Cairn
 
 ### 开源协议
 
-本项目采用 **GNU Affero General Public License v3.0（AGPL-3.0）** 授权，完整条款见仓库根目录的 [LICENSE](LICENSE) 文件。
+本项目是 [RuoJi6/ARTEX](https://github.com/RuoJi6/ARTEX) 的衍生作品，采用 **GNU Affero General Public License v3.0（AGPL-3.0）** 授权，完整条款见仓库根目录的 [LICENSE](LICENSE) 文件。上游项目的著作权归原作者及贡献者所有；本分支的修改同样以 AGPL-3.0 发布。
 
 这意味着任何人都可以自由使用、修改和分发本项目，但**衍生作品必须同样以 AGPL-3.0 开源**；特别地，**若你修改本项目并通过网络（如部署为在线服务）向用户提供，也必须向这些用户公开对应的完整源码**。
 
 > ⚠️ **重要提示**：开源协议本身不限制软件的使用用途。以下的「使用限制」与「免责声明」是作者对使用者的额外约定与郑重声明，请务必遵守。
 
-**ARTEX 仅供个人学习、代码研究与本地技术验证使用，不得用于对任何线上系统或网站发起实际测试。**
+**0x 仅供个人学习、代码研究与本地技术验证使用，不得用于对任何线上系统或网站发起实际测试。**
 
 ### 允许使用范围
 

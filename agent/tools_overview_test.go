@@ -5,7 +5,7 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/Autumn-27/artex/db"
+	"github.com/kismetpro/0x/db"
 )
 
 func TestOverviewTextBudgetIsFairAndUTF8Safe(t *testing.T) {

@@ -27,14 +27,14 @@ jobs:
         id: version
         env:
           RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
-          ARTEX_DOCKER_IMAGE: ${{ vars.ARTEX_DOCKER_IMAGE }}
+          ZEROX_DOCKER_IMAGE: ${{ vars.ZEROX_DOCKER_IMAGE }}
         run: |
           if [[ ! "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
             echo "正式版本必须是 v主版本.次版本.修订号，例如 v0.3.15" >&2
             exit 1
           fi
-          if [[ ! "$ARTEX_DOCKER_IMAGE" =~ ^[a-z0-9][a-z0-9_-]*/[a-z0-9]+([._-][a-z0-9]+)*$ ]]; then
-            echo "请先配置 Actions 变量 ARTEX_DOCKER_IMAGE，格式为 Docker Hub 用户名/镜像名" >&2
+          if [[ ! "$ZEROX_DOCKER_IMAGE" =~ ^[a-z0-9][a-z0-9_-]*/[a-z0-9]+([._-][a-z0-9]+)*$ ]]; then
+            echo "请先配置 Actions 变量 ZEROX_DOCKER_IMAGE，格式为 Docker Hub 用户名/镜像名" >&2
             exit 1
           fi
           echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
@@ -93,21 +93,21 @@ jobs:
           path: server/webui/dist
       - name: Build and package with build.sh
         env:
-          ARTEX_TARGET_OS: ${{ matrix.goos }}
-          ARTEX_TARGET_ARCH: ${{ matrix.goarch }}
-          ARTEX_BUILD_VERSION: ${{ needs.prepare.outputs.tag }}
-          ARTEX_SKIP_FRONTEND: "1"
-          ARTEX_SKIP_NPM_CI: "1"
+          ZEROX_TARGET_OS: ${{ matrix.goos }}
+          ZEROX_TARGET_ARCH: ${{ matrix.goarch }}
+          ZEROX_BUILD_VERSION: ${{ needs.prepare.outputs.tag }}
+          ZEROX_SKIP_FRONTEND: "1"
+          ZEROX_SKIP_NPM_CI: "1"
           # UPX 自解压 ELF 在部分 Linux 内核、虚拟化和安全策略下会崩溃。
           # Release 使用 Go linker 裁剪和 zip 压缩，优先保证可移植性。
-          ARTEX_COMPRESS: "0"
-          ARTEX_PACKAGE: "1"
-          ARTEX_PACKAGE_DIR: dist
+          ZEROX_COMPRESS: "0"
+          ZEROX_PACKAGE: "1"
+          ZEROX_PACKAGE_DIR: dist
         run: |
-          ./build.sh --target "${ARTEX_TARGET_OS}/${ARTEX_TARGET_ARCH}"
+          ./build.sh --target "${ZEROX_TARGET_OS}/${ZEROX_TARGET_ARCH}"
       - name: Smoke test Linux amd64 binary
         if: matrix.goos == 'linux' && matrix.goarch == 'amd64'
-        run: dist/artex-linux-amd64/artex -h
+        run: dist/0x-linux-amd64/0x -h
       - uses: actions/upload-artifact@v4
         with:
           name: pkg-${{ matrix.goos }}-${{ matrix.goarch }}
@@ -117,7 +117,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: bin-linux-${{ matrix.goarch }}
-          path: dist/artex-linux-${{ matrix.goarch }}/artex
+          path: dist/0x-linux-${{ matrix.goarch }}/0x
 
   # ③ 汇总所有 zip → 创建 GitHub Release
   release:
@@ -140,7 +140,7 @@ jobs:
         run: |
           version="${RELEASE_TAG#v}"
           for target in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64 windows-amd64; do
-            test -s "artex-${version}-${target}.zip"
+            test -s "0x-${version}-${target}.zip"
           done
           sha256sum *.zip > SHA256SUMS
           sha256sum --check SHA256SUMS
@@ -148,9 +148,9 @@ jobs:
         env:
           RELEASE_COMMIT: ${{ needs.prepare.outputs.commit }}
         run: |
-          if gh release view "$RELEASE_TAG" --json isDraft,targetCommitish > /tmp/artex-release.json 2>/tmp/artex-release.err; then
-            draft=$(jq -r .isDraft /tmp/artex-release.json)
-            target=$(jq -r '.targetCommitish // empty' /tmp/artex-release.json)
+          if gh release view "$RELEASE_TAG" --json isDraft,targetCommitish > /tmp/0x-release.json 2>/tmp/0x-release.err; then
+            draft=$(jq -r .isDraft /tmp/0x-release.json)
+            target=$(jq -r '.targetCommitish // empty' /tmp/0x-release.json)
             if [[ "$draft" != "true" ]]; then
               if [[ "$target" == "$RELEASE_COMMIT" ]]; then
                 echo "该版本已发布且已指向当前提交，拒绝重复发布" >&2
@@ -159,8 +159,8 @@ jobs:
               echo "标签已移动到新提交，删除旧 Release 后重新创建 $RELEASE_TAG"
               gh release delete "$RELEASE_TAG" --yes
             fi
-          elif ! grep -qi 'release not found\|HTTP 404' /tmp/artex-release.err; then
-            cat /tmp/artex-release.err >&2
+          elif ! grep -qi 'release not found\|HTTP 404' /tmp/0x-release.err; then
+            cat /tmp/0x-release.err >&2
             exit 1
           fi
       - uses: softprops/action-gh-release@v2
@@ -174,7 +174,7 @@ jobs:
             dist/SHA256SUMS
           generate_release_notes: true
           body: |
-            Docker Hub 镜像：`${{ vars.ARTEX_DOCKER_IMAGE }}:${{ needs.prepare.outputs.tag }}`，同时提供 `latest`。
+            Docker Hub 镜像：`${{ vars.ZEROX_DOCKER_IMAGE }}:${{ needs.prepare.outputs.tag }}`，同时提供 `latest`。
             支持 Linux AMD64 / ARM64，Docker 会自动选择宿主机架构。
             程序包提供 Linux、macOS 的 AMD64 / ARM64 及 Windows AMD64，并附 SHA256SUMS。
             部署和在线更新说明见本仓库 README。
@@ -206,13 +206,13 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_USER: artex
-          POSTGRES_PASSWORD: artex-ci-test
-          POSTGRES_DB: artex
+          POSTGRES_USER: zerox
+          POSTGRES_PASSWORD: zerox-ci-test
+          POSTGRES_DB: zerox
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U artex -d artex"
+          --health-cmd "pg_isready -U zerox -d zerox"
           --health-interval 5s --health-timeout 3s --health-retries 10
     steps:
       - uses: actions/checkout@v4 # 取 Dockerfile 与 skills/
@@ -233,29 +233,29 @@ jobs:
           context: .
           platforms: linux/${{ matrix.arch }}
           load: true
-          tags: artex:smoke
+          tags: 0x:smoke
           cache-from: type=gha,scope=docker-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=docker-${{ matrix.arch }}
       - name: Test application startup and embedded frontend
         env:
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
         run: |
-          docker run --rm --entrypoint /app/artex artex:smoke -h
-          docker run -d --name artex-smoke --network host \
-            -e ARTEX_PG_DSN='postgres://artex:artex-ci-test@127.0.0.1:5432/artex?sslmode=disable' artex:smoke
-          trap 'docker logs artex-smoke; docker rm -f artex-smoke' EXIT
+          docker run --rm --entrypoint /app/0x 0x:smoke -h
+          docker run -d --name 0x-smoke --network host \
+            -e ZEROX_PG_DSN='postgres://zerox:zerox-ci-test@127.0.0.1:5432/zerox?sslmode=disable' 0x:smoke
+          trap 'docker logs 0x-smoke; docker rm -f 0x-smoke' EXIT
           curl --fail --retry 30 --retry-connrefused --retry-delay 2 --max-time 3 \
-            http://127.0.0.1:8787/api/health > /tmp/artex-health.json
-          jq -e --arg version "${RELEASE_TAG#v}" '.ok == true and .version == $version' /tmp/artex-health.json
-          curl --fail http://127.0.0.1:8787/ > /tmp/artex-index.html
-          grep -qi '<!doctype html' /tmp/artex-index.html
+            http://127.0.0.1:9887/api/health > /tmp/0x-health.json
+          jq -e --arg version "${RELEASE_TAG#v}" '.ok == true and .version == $version' /tmp/0x-health.json
+          curl --fail http://127.0.0.1:9887/ > /tmp/0x-index.html
+          grep -qi '<!doctype html' /tmp/0x-index.html
       - name: Push tested architecture image
         uses: docker/build-push-action@v6
         with:
           context: .
           platforms: linux/${{ matrix.arch }}
           push: true
-          tags: ${{ vars.ARTEX_DOCKER_IMAGE }}:${{ needs.prepare.outputs.tag }}-${{ matrix.arch }}
+          tags: ${{ vars.ZEROX_DOCKER_IMAGE }}:${{ needs.prepare.outputs.tag }}-${{ matrix.arch }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.version=${{ needs.prepare.outputs.tag }}
@@ -275,11 +275,11 @@ jobs:
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       - name: Publish multi-platform image
         env:
-          IMAGE: ${{ vars.ARTEX_DOCKER_IMAGE }}
+          IMAGE: ${{ vars.ZEROX_DOCKER_IMAGE }}
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
         run: |
           docker buildx imagetools create \
             --tag "$IMAGE:$RELEASE_TAG" --tag "$IMAGE:latest" \
             "$IMAGE:$RELEASE_TAG-amd64" "$IMAGE:$RELEASE_TAG-arm64"
-          docker buildx imagetools inspect "$IMAGE:$RELEASE_TAG" --raw > /tmp/artex-manifest.json
-          jq -e '[.manifests[].platform | select(.os == "linux") | .architecture] | index("amd64") != null and index("arm64") != null' /tmp/artex-manifest.json
+          docker buildx imagetools inspect "$IMAGE:$RELEASE_TAG" --raw > /tmp/0x-manifest.json
+          jq -e '[.manifests[].platform | select(.os == "linux") | .architecture] | index("amd64") != null and index("arm64") != null' /tmp/0x-manifest.json

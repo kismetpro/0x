@@ -7,11 +7,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Autumn-27/artex/db"
-	"github.com/Autumn-27/artex/guard"
-	"github.com/Autumn-27/artex/intercept"
 	"github.com/Autumn-27/norma/llm"
 	"github.com/Autumn-27/norma/tool"
+	"github.com/kismetpro/0x/db"
+	"github.com/kismetpro/0x/guard"
+	"github.com/kismetpro/0x/intercept"
 )
 
 // Real PostgreSQL + SDK hooks: Worker reviews receive the current call only.
@@ -134,7 +134,7 @@ func TestWorkerReviewContextAcrossToolCalls(t *testing.T) {
 		if json.Unmarshal(detail.Audit.ModelInput, &saved) != nil || saved.Background != nil || saved.Version != 5 {
 			t.Fatal("stored Worker review input retained a background")
 		}
-			if row.Status == "allowed" && (detail.Audit.ExecutionStatus != "succeeded" || saved.Version != 5) {
+		if row.Status == "allowed" && (detail.Audit.ExecutionStatus != "succeeded" || saved.Version != 5) {
 			t.Fatal("automatic allow lost execution result or its original background snapshot")
 		}
 		if detail.Audit.Correlation != "exact" {

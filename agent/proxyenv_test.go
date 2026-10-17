@@ -34,7 +34,7 @@ func TestProxyEnvSetsAllProxyForSocks5(t *testing.T) {
 }
 
 func TestProxyEnvInjectsCAWhenRecording(t *testing.T) {
-	env := proxyEnv("http://127.0.0.1:8788", "/data/ca.pem")
+	env := proxyEnv("http://127.0.0.1:9888", "/data/ca.pem")
 	has := func(prefix string) bool {
 		for _, e := range env {
 			if strings.HasPrefix(e, prefix) {

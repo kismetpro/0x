@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Autumn-27/artex/db"
+	"github.com/kismetpro/0x/db"
 )
 
 func retryTestInterceptor(t *testing.T, settings map[string]string) *Interceptor {

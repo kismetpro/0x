@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
 # =============================================================================
-# ARTEX 管理员密码重置脚本
+# 0x 管理员密码重置脚本
 #
-# 登录用户名固定为 ARTEX；密码以 bcrypt 哈希存放在数据库 settings 表的
+# 登录用户名固定为 0x；密码以 bcrypt 哈希存放在数据库 settings 表的
 # auth.password_hash 键。本脚本连上数据库后，用 pgcrypto 在库内生成 bcrypt 哈希
 # 并写回该键——与后端登录校验（golang.org/x/crypto/bcrypt）完全兼容。
 #
 # 两种部署：
 #   local （默认）—— 宿主机直接用 psql 连数据库。连接信息按以下优先级获取：
-#                    命令行参数 > --dsn/$ARTEX_PG_DSN > config.json 的 database.*
+#                    命令行参数 > --dsn/$ZEROX_PG_DSN > config.json 的 database.*
 #   docker        —— 通过 `docker compose exec`（或 `docker exec`）在 postgres
 #                    容器内执行 psql（compose 默认不对宿主暴露 5432，故走容器内）。
 #
 # 用法示例：
 #   ./reset-password.sh                          # 本地，自动读 config.json/环境，交互输入新密码
 #   ./reset-password.sh -p 'NewPass!'            # 本地，直接给定新密码
-#   ./reset-password.sh --dsn postgres://u:p@h:5432/artex
-#   ./reset-password.sh -H 127.0.0.1 -P 5433 -U autopentest -W pass -d artex
+#   ./reset-password.sh --dsn postgres://u:p@h:5432/zerox
+#   ./reset-password.sh -H 127.0.0.1 -P 5433 -U zerox -W pass -d zerox
 #   ./reset-password.sh -m docker                # docker 部署（读 .env 的 POSTGRES_*）
 #   ./reset-password.sh -m docker -c pg容器名 --exec docker
 #
@@ -112,7 +112,7 @@ apply_config_fields() {
 
 # ---- 自动判定模式 ---------------------------------------------------------
 if [[ -z "$MODE" ]]; then
-  if [[ -n "$DSN$HOST$USER$DBNAME" || -n "${ARTEX_PG_DSN:-}" || -f "${CONFIG:-config.json}" ]]; then
+  if [[ -n "$DSN$HOST$USER$DBNAME" || -n "${ZEROX_PG_DSN:-}" || -f "${CONFIG:-config.json}" ]]; then
     MODE="local"
   elif command -v docker >/dev/null 2>&1 && [[ -f docker-compose.yml ]]; then
     MODE="docker"
@@ -124,7 +124,7 @@ info "部署模式：$MODE"
 
 # ---- 采集新密码 -----------------------------------------------------------
 if [[ -z "$NEWPASS" ]]; then
-  read -r -s -p "输入新密码（用户名固定为 ARTEX）：" NEWPASS; echo >&2
+  read -r -s -p "输入新密码（用户名固定为 0x）：" NEWPASS; echo >&2
   [[ -n "$NEWPASS" ]] || die "密码不能为空"
   read -r -s -p "再次输入以确认：" NEWPASS2; echo >&2
   [[ "$NEWPASS" == "$NEWPASS2" ]] || die "两次输入不一致"
@@ -132,13 +132,13 @@ fi
 [[ -n "$NEWPASS" ]] || die "密码不能为空"
 
 # 通过环境变量把密码交给 psql（\getenv 读取，不进入 argv/ps）
-export ARTEX_RESET_NEWPASS="$NEWPASS"
+export ZEROX_RESET_NEWPASS="$NEWPASS"
 
 # 库内生成 bcrypt 并 upsert；密码用 :'newpw' 自动转义。CREATE EXTENSION 幂等，
 # 若数据库角色无建扩展权限会在此报错（提示见下方 run 的失败分支）。
 SQL=$(cat <<SQL
 \\set ON_ERROR_STOP on
-\\getenv newpw ARTEX_RESET_NEWPASS
+\\getenv newpw ZEROX_RESET_NEWPASS
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 INSERT INTO settings(key, value)
 VALUES ('$PASS_KEY', crypt(:'newpw', gen_salt('bf', $BCRYPT_COST)))
@@ -148,9 +148,9 @@ SQL
 
 # ---- 执行 -----------------------------------------------------------------
 if [[ "$MODE" == "local" ]]; then
-  # 连接信息优先级：命令行 > --dsn/$ARTEX_PG_DSN > config.json
+  # 连接信息优先级：命令行 > --dsn/$ZEROX_PG_DSN > config.json
   if [[ -z "$DSN" && -z "$HOST$USER$DBNAME" ]]; then
-    [[ -n "${ARTEX_PG_DSN:-}" ]] && DSN="$ARTEX_PG_DSN"
+    [[ -n "${ZEROX_PG_DSN:-}" ]] && DSN="$ZEROX_PG_DSN"
   fi
   if [[ -z "$DSN" && -z "$HOST$USER$DBNAME" ]]; then
     cfg="${CONFIG:-config.json}"
@@ -178,7 +178,7 @@ if [[ "$MODE" == "local" ]]; then
 
   info "目标数据库：$target"
   if [[ "$ASSUME_YES" -ne 1 ]]; then
-    read -r -p "确认在该库重置 ARTEX 密码？[y/N] " ans
+    read -r -p "确认在该库重置 0x 密码？[y/N] " ans
     [[ "$ans" == "y" || "$ans" == "Y" ]] || die "已取消"
   fi
 
@@ -200,29 +200,29 @@ else
     fi
   fi
 
-  # 容器内的 psql 凭据：优先命令行，其次 .env 的 POSTGRES_*，再退回 compose 默认(artex)
+  # 容器内的 psql 凭据：优先命令行，其次 .env 的 POSTGRES_*，再退回 compose 默认(zerox)
   if [[ -f .env ]]; then
     # shellcheck disable=SC1091
     set -a; . ./.env; set +a
   fi
-  DUSER="${USER:-${POSTGRES_USER:-artex}}"
-  DNAME="${DBNAME:-${POSTGRES_DB:-artex}}"
+  DUSER="${USER:-${POSTGRES_USER:-zerox}}"
+  DNAME="${DBNAME:-${POSTGRES_DB:-zerox}}"
   [[ -n "$DBPASS" ]] && export PGPASSWORD="$DBPASS"
   [[ -z "${PGPASSWORD:-}" && -n "${POSTGRES_PASSWORD:-}" ]] && export PGPASSWORD="$POSTGRES_PASSWORD"
 
   info "目标：容器 $CONTAINER 内 psql -U $DUSER -d $DNAME（exec=$EXEC_KIND）"
   if [[ "$ASSUME_YES" -ne 1 ]]; then
-    read -r -p "确认在该容器数据库重置 ARTEX 密码？[y/N] " ans
+    read -r -p "确认在该容器数据库重置 0x 密码？[y/N] " ans
     [[ "$ans" == "y" || "$ans" == "Y" ]] || die "已取消"
   fi
 
   # -e 只带名字不带值 → 从当前环境继承，密码不出现在 docker 命令 argv 里。
   declare -a EXEC_CMD
   if [[ "$EXEC_KIND" == "compose" ]]; then
-    EXEC_CMD=(docker compose exec -T -e ARTEX_RESET_NEWPASS -e PGPASSWORD "$CONTAINER"
+    EXEC_CMD=(docker compose exec -T -e ZEROX_RESET_NEWPASS -e PGPASSWORD "$CONTAINER"
               psql -U "$DUSER" -d "$DNAME" -v ON_ERROR_STOP=1 -q)
   else
-    EXEC_CMD=(docker exec -i -e ARTEX_RESET_NEWPASS -e PGPASSWORD "$CONTAINER"
+    EXEC_CMD=(docker exec -i -e ZEROX_RESET_NEWPASS -e PGPASSWORD "$CONTAINER"
               psql -U "$DUSER" -d "$DNAME" -v ON_ERROR_STOP=1 -q)
   fi
 
@@ -231,5 +231,5 @@ else
   fi
 fi
 
-unset ARTEX_RESET_NEWPASS
-echo "✓ 已重置 ARTEX 管理员密码。请用用户名 ARTEX + 新密码登录（无需重启服务）。"
+unset ZEROX_RESET_NEWPASS
+echo "✓ 已重置 0x 管理员密码。请用用户名 0x + 新密码登录（无需重启服务）。"

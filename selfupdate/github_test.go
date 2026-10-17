@@ -14,7 +14,7 @@ func (f releaseTransport) RoundTrip(r *http.Request) (*http.Response, error) { r
 
 func TestFetchLatestUsesForkRelease(t *testing.T) {
 	client := &http.Client{Transport: releaseTransport(func(r *http.Request) (*http.Response, error) {
-		if got := r.URL.String(); got != "https://api.github.com/repos/RuoJi6/ARTEX/releases/latest" {
+		if got := r.URL.String(); got != "https://api.github.com/repos/kismetpro/0x/releases/latest" {
 			t.Fatalf("unexpected update source: %s", got)
 		}
 		if r.Method != http.MethodGet || r.Header.Get("Accept") != "application/vnd.github+json" {
@@ -23,8 +23,8 @@ func TestFetchLatestUsesForkRelease(t *testing.T) {
 		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{
 			"tag_name":"v0.3.16",
 			"assets":[
-				{"name":"artex-0.3.16-linux-arm64.zip","browser_download_url":"https://github.com/RuoJi6/ARTEX/releases/download/v0.3.16/artex-0.3.16-linux-arm64.zip"},
-				{"name":"SHA256SUMS","browser_download_url":"https://github.com/RuoJi6/ARTEX/releases/download/v0.3.16/SHA256SUMS"}
+				{"name":"0x-0.3.16-linux-arm64.zip","browser_download_url":"https://github.com/kismetpro/0x/releases/download/v0.3.16/0x-0.3.16-linux-arm64.zip"},
+				{"name":"SHA256SUMS","browser_download_url":"https://github.com/kismetpro/0x/releases/download/v0.3.16/SHA256SUMS"}
 			]
 		}`))}, nil
 	})}
@@ -52,7 +52,7 @@ func TestFetchLatestMissingRelease(t *testing.T) {
 		return &http.Response{StatusCode: http.StatusNotFound, Body: io.NopCloser(strings.NewReader("{}"))}, nil
 	})}
 	_, err := FetchLatest(context.Background(), client)
-	if err == nil || !strings.Contains(err.Error(), "RuoJi6/ARTEX") || !strings.Contains(err.Error(), "不可访问或尚未发布") {
+	if err == nil || !strings.Contains(err.Error(), "kismetpro/0x") || !strings.Contains(err.Error(), "不可访问或尚未发布") {
 		t.Fatalf("unexpected missing-release error: %v", err)
 	}
 }

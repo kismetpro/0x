@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Autumn-27/artex/db"
+	"github.com/kismetpro/0x/db"
 	_ "modernc.org/sqlite"
 )
 

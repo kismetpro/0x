@@ -12,7 +12,7 @@ export async function proxy(request: NextRequest) {
   // Remote dev backends remain usable when their optional gate is disabled.
   let gate: Response;
   try {
-    const backend = new URL(process.env.AUTOPENTEST_API ?? "http://localhost:8787");
+    const backend = new URL(process.env.ZEROX_API ?? "http://localhost:9887");
     if (!["http:", "https:"].includes(backend.protocol) || backend.username || backend.password) {
       return new NextResponse("认证后端地址配置无效", { status: 503 });
     }
@@ -53,7 +53,7 @@ export async function proxy(request: NextRequest) {
   };
 
   const { pathname } = request.nextUrl;
-  const token = request.cookies.get("artex_token")?.value;
+  const token = request.cookies.get("zerox_token")?.value;
   const isAuthPage = AUTH_PAGES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
 
   // 未登录 → 跳转登录页

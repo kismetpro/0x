@@ -7,8 +7,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/Autumn-27/artex/sidequestion"
 	"github.com/google/uuid"
+	"github.com/kismetpro/0x/sidequestion"
 )
 
 var ErrSideBusy = errors.New("当前会话已有旁路问题正在回答")

@@ -64,7 +64,7 @@ export function BasicAuthCard() {
           HTTP Basic Auth
         </CardTitle>
         <CardDescription>
-          开启后，访客需先通过浏览器原生账号密码验证，再进入 ARTEX 登录页。默认关闭，保存后立即生效。
+          开启后，访客需先通过浏览器原生账号密码验证，再进入 0x 登录页。默认关闭，保存后立即生效。
         </CardDescription>
       </CardHeader>
       <form onSubmit={save}>
@@ -88,7 +88,7 @@ export function BasicAuthCard() {
                 required={enabled}
                 disabled={!loaded || saving}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="独立于 ARTEX 登录账号"
+                placeholder="独立于 0x 登录账号"
               />
               <FieldDescription>不能包含冒号，最长 128 字节。</FieldDescription>
             </Field>
@@ -104,7 +104,7 @@ export function BasicAuthCard() {
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder={passwordSet ? "已设置，留空保持原密码" : "至少 8 位，最多 72 字节"}
               />
-              <FieldDescription>与 ARTEX 登录密码独立。公网访问请使用 HTTPS。</FieldDescription>
+              <FieldDescription>与 0x 登录密码独立。公网访问请使用 HTTPS。</FieldDescription>
             </Field>
             <FieldDescription>
               保存不会中断当前浏览器访问。可用无痕窗口检查验证弹窗；浏览器可能缓存凭据。关闭后保留账号密码，便于再次开启。

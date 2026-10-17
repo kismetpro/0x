@@ -2,6 +2,9 @@
 
 本项目的重要变更记录在此文件中，格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。
 
+> 本文件下方的历史条目来自上游 ARTEX（[RuoJi6/ARTEX](https://github.com/RuoJi6/ARTEX)），其中的程序名、端口、镜像名、环境变量等均为上游命名，未做改写。
+> 0x 分支的变更从本条起单独记录：改名 0x（二进制 `0x`、镜像 `kismetpro/0x`）、环境变量前缀 `ZEROX_`、端口 9887/9888、Cookie `zerox_*`、Compose 工程 `0x`、Postgres 角色/库 `zerox`、在线更新源改指本仓库。
+
 ## [Unreleased]
 
 ## [0.3.18] - 2026-10-12

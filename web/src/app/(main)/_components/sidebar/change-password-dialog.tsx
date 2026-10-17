@@ -66,7 +66,7 @@ export function ChangePasswordDialog({
           <DialogHeader>
             <DialogTitle>修改密码</DialogTitle>
             <DialogDescription>
-              用户名固定为 <b>ARTEX</b>。需先输入当前密码验证；修改后已签发的登录 token 仍有效直至过期。
+              用户名固定为 <b>0x</b>。需先输入当前密码验证；修改后已签发的登录 token 仍有效直至过期。
             </DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-3 py-4">

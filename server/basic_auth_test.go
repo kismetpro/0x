@@ -273,7 +273,7 @@ func TestBasicAuthGate(t *testing.T) {
 			if w.Code != tc.want {
 				t.Fatalf("status=%d want %d: %s", w.Code, tc.want, w.Body.String())
 			}
-			if w.Code == 401 && w.Header().Get("WWW-Authenticate") != `Basic realm="ARTEX", charset="UTF-8"` {
+			if w.Code == 401 && w.Header().Get("WWW-Authenticate") != `Basic realm="0x", charset="UTF-8"` {
 				t.Fatal("missing browser challenge")
 			}
 		})
@@ -371,7 +371,7 @@ func TestBasicAuthExpiredCookieAndSecureFlag(t *testing.T) {
 	cfg := s.basicAuth.snapshot()
 	for _, expires := range []*jwt.NumericDate{nil, jwt.NewNumericDate(time.Now().Add(-time.Minute))} {
 		token, _ := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{
-			Subject: cfg.Revision, Audience: jwt.ClaimStrings{"artex-basic-auth"}, ExpiresAt: expires,
+			Subject: cfg.Revision, Audience: jwt.ClaimStrings{"zerox-basic-auth"}, ExpiresAt: expires,
 		}).SignedString(s.basicAuthSigningKey())
 		r := httptest.NewRequest("GET", "/", nil)
 		r.AddCookie(&http.Cookie{Name: basicAuthCookie, Value: token})
@@ -405,7 +405,7 @@ func TestBasicAuthCORS(t *testing.T) {
 	}{
 		{"http://127.0.0.1:3000", true}, {"https://evil.test", false}, {"http://127.0.0.1.evil.test:3000", false},
 	} {
-		r := httptest.NewRequest("OPTIONS", "http://127.0.0.1:8787/api/settings/basic-auth", nil)
+		r := httptest.NewRequest("OPTIONS", "http://127.0.0.1:9887/api/settings/basic-auth", nil)
 		r.Header.Set("Origin", tc.origin)
 		w := httptest.NewRecorder()
 		cors(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Fatal("preflight reached handler") })).ServeHTTP(w, r)
@@ -471,7 +471,7 @@ func TestBasicAuthPostgresLoginFlow(t *testing.T) {
 	if err := restarted.basicAuth.load(m.pg); err != nil {
 		t.Fatal(err)
 	}
-	loginBody := `{"username":"ARTEX","password":"admin-password"}`
+	loginBody := `{"username":"0x","password":"admin-password"}`
 	r = httptest.NewRequest("POST", "/api/auth/login", strings.NewReader(loginBody))
 	w = httptest.NewRecorder()
 	restarted.Handler().ServeHTTP(w, r)

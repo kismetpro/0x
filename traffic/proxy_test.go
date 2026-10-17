@@ -65,11 +65,11 @@ func TestProxyAddr(t *testing.T) {
 	}{
 		// Bare :port means "bind all interfaces" — the legacy default. The URL
 		// agents consume must still point at loopback so they reach the local proxy.
-		{":8788", "http://127.0.0.1:8788"},
+		{":9888", "http://127.0.0.1:9888"},
 		// Explicit loopback — the current default since #129 (open proxy exposure).
-		{"127.0.0.1:8788", "http://127.0.0.1:8788"},
+		{"127.0.0.1:9888", "http://127.0.0.1:9888"},
 		// Explicit all-interface bind is still supported (remote capture via SSH).
-		{"0.0.0.0:8788", "http://0.0.0.0:8788"},
+		{"0.0.0.0:9888", "http://0.0.0.0:9888"},
 	}
 	for _, c := range cases {
 		got := (&Traffic{addr: c.addr}).ProxyAddr()
