@@ -20,7 +20,7 @@ services:
     restart: unless-stopped
 
   0x:
-    image: ${ZEROX_IMAGE:-kismetpro/0x}:${ZEROX_TAG:-latest}
+    image: ${ZEROX_IMAGE:-ghcr.io/kismetpro/0x}:${ZEROX_TAG:-latest}
     container_name: 0x
     depends_on:
       postgres:

@@ -194,10 +194,12 @@ jobs:
         run: |
           url=$(vercel deploy --prebuilt --prod --yes --token="$VERCEL_TOKEN")
           echo "url=$url" >> "$GITHUB_OUTPUT"
-          echo "### Demo 已部署" >> "$GITHUB_STEP_SUMMARY"
-          echo "- 正式版本：${{ steps.release.outputs.tag }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "- 固定网址：$DEMO_URL" >> "$GITHUB_STEP_SUMMARY"
-          echo "- 部署地址：$url" >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "### Demo 已部署"
+            echo "- 正式版本：${{ steps.release.outputs.tag }}"
+            echo "- 固定网址：$DEMO_URL"
+            echo "- 部署地址：$url"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Verify production version metadata
         if: steps.publish.outputs.current == 'true'

@@ -12,7 +12,7 @@ AI 自主渗透测试系统（Go 后端 + Next.js 前端）
 本仓库是 [RuoJi6/ARTEX](https://github.com/RuoJi6/ARTEX) 的二次开发分支（fork），保留上游的原始提交历史与 **AGPL-3.0** 许可证。相对上游的主要改动是**改名与共存适配**：程序名、镜像、环境变量、端口、Cookie、数据卷全部换成 0x 自己的标识，因此可以和原版 ARTEX 部署在同一台机器上互不干扰。
 
 - 程序发布包：本仓库 [Releases](https://github.com/kismetpro/0x/releases)
-- Docker 镜像：[kismetpro/0x](https://hub.docker.com/r/kismetpro/0x)，由本仓库 GitHub Actions 构建发布
+- 容器镜像：[ghcr.io/kismetpro/0x](https://github.com/kismetpro/0x/pkgs/container/0x)（本仓库 GitHub Actions 构建发布）；若维护者配置了 Docker Hub 凭据，同一版本会同时推送到 [kismetpro/0x](https://hub.docker.com/r/kismetpro/0x)
 - 在线更新源：本仓库 Releases（不再指向原作者仓库）
 
 > 下文截图与「在线 Demo」均来自上游界面，除品牌标识外与本仓库一致。
@@ -28,7 +28,7 @@ AI 自主渗透测试系统（Go 后端 + Next.js 前端）
 | 界面 / API 端口 | 8787 | **9887** |
 | 流量录制代理端口 | 8788 | **9888** |
 | 登录 Cookie | `artex_token` / `artex_basic_auth` | `zerox_token` / `zerox_basic_auth` |
-| Docker 镜像 | `ruoji6/artex` | `kismetpro/0x` |
+| 容器镜像 | `ruoji6/artex` | `ghcr.io/kismetpro/0x`（可选同步 Docker Hub `kismetpro/0x`） |
 | Compose 工程 / 容器 | `artex` | `0x`（容器 `0x`、`0x-postgres`） |
 | Postgres 数据卷 | `pgdata` | `0x-pgdata` |
 | Postgres 角色 / 库 | `artex` | `zerox` |
@@ -158,13 +158,13 @@ cd 0x
 git clone https://github.com/kismetpro/0x.git
 cd 0x
 cp .env.example .env          # 填 POSTGRES_PASSWORD、可选 ANTHROPIC_API_KEY
-docker compose up -d          # 拉取 kismetpro/0x 镜像 + postgres
+docker compose up -d          # 拉取 ghcr.io/kismetpro/0x 镜像 + postgres
 # → http://localhost:9887
 ```
 
 镜像已含常用工具（ripgrep/curl/vim/npm/nmap…）；`./skills` 与 `./data` 以绑定挂载持久化。
 
-`.env` 中默认 `ZEROX_IMAGE=kismetpro/0x`，`ZEROX_TAG=latest` 使用最新镜像，也可固定为 `v0.3.17`（完整镜像地址 `kismetpro/0x:v0.3.17`）。镜像支持 `linux/amd64` 和 `linux/arm64`，Docker 会自动选择与宿主机匹配的架构，ARM64 Kali 无需自行编译。初次部署请修改 `POSTGRES_PASSWORD`；运行服务无需配置 Docker Hub 发布 Token。
+`.env` 中默认 `ZEROX_IMAGE=ghcr.io/kismetpro/0x`，`ZEROX_TAG=latest` 使用最新镜像，也可固定为 `v0.3.17`（完整镜像地址 `ghcr.io/kismetpro/0x:v0.3.17`）。GHCR 上的镜像随公开仓库公开，拉取无需登录。镜像支持 `linux/amd64` 和 `linux/arm64`，Docker 会自动选择与宿主机匹配的架构，ARM64 Kali 无需自行编译。初次部署请修改 `POSTGRES_PASSWORD`；运行服务无需配置 Docker Hub 发布 Token。
 
 远程 MCP 可在系统设置中选择 `http`（Streamable HTTP）或 `sse`（旧版 SSE）。
 旧版 SSE 服务通常使用 `GET /sse` 建立事件流，再通过服务返回的
@@ -244,7 +244,9 @@ git push origin v0.3.17
 
 工作流固定标签对应的提交，用 Node.js 22 导出前端，按照 `go.mod` 指定的 Go 版本编译内嵌前端的五个平台程序，并生成 ZIP 与 `SHA256SUMS`。AMD64 和 ARM64 镜像分别在 GitHub 原生 runner 上构建，连接临时 PostgreSQL 验证程序启动、版本和内嵌前端；两种架构都通过后发布多架构镜像的版本标签与 `latest`。镜像发布成功后上传完整 ZIP 和校验文件，最后公开 Release。已公开的同版本不允许覆盖，应发布新标签。
 
-维护者需在本仓库 Settings → Secrets and variables → Actions 中配置变量 `ZEROX_DOCKER_IMAGE`（Docker Hub 用户名/镜像名）和 Secrets `DOCKERHUB_USERNAME`、`DOCKERHUB_TOKEN`（有镜像推送权限）。程序包通过 GitHub 自带 `GITHUB_TOKEN` 上传，镜像通过上述凭据推送到 Docker Hub。凭据只供工作流登录使用，不写入源码或镜像。镜像地址同时记录在 `.env.example` 和 Compose 默认值中。
+容器镜像默认发布到 **GHCR**（`ghcr.io/<owner>/<repo>`），使用工作流自带的 `GITHUB_TOKEN` 推送，**开箱即用、无需配置任何密钥**。想同时发布到 Docker Hub，再额外配置变量 `ZEROX_DOCKER_IMAGE`（Docker Hub 用户名/镜像名，例如 `kismetpro/0x`）与 Secrets `DOCKERHUB_USERNAME`、`DOCKERHUB_TOKEN`（需要 push 权限的 Access Token）；只配一半时工作流会警告并只发布 GHCR。
+
+在线 Demo 同理：未配置 `VERCEL_TOKEN` / `VERCEL_ORG_ID` / `VERCEL_PROJECT_ID` / `DEMO_URL` 时自动跳过 Demo 部署，不影响程序包与镜像发布。程序包通过 GitHub 自带 `GITHUB_TOKEN` 上传。凭据只供工作流登录使用，不写入源码或镜像。
 
 ### 从原版 ARTEX 迁移到 0x
 

@@ -22,6 +22,8 @@ jobs:
     outputs:
       tag: ${{ steps.version.outputs.tag }}
       commit: ${{ steps.commit.outputs.sha }}
+      dockerhub: ${{ steps.integrations.outputs.dockerhub }}
+      demo: ${{ steps.integrations.outputs.demo }}
     steps:
       - name: Validate release version
         id: version
@@ -33,11 +35,46 @@ jobs:
             echo "正式版本必须是 v主版本.次版本.修订号，例如 v0.3.15" >&2
             exit 1
           fi
-          if [[ ! "$ZEROX_DOCKER_IMAGE" =~ ^[a-z0-9][a-z0-9_-]*/[a-z0-9]+([._-][a-z0-9]+)*$ ]]; then
-            echo "请先配置 Actions 变量 ZEROX_DOCKER_IMAGE，格式为 Docker Hub 用户名/镜像名" >&2
+          # Docker Hub 是可选发布目标：变量与机密齐备时才推送，缺省只发布到 GHCR。
+          if [[ -n "$ZEROX_DOCKER_IMAGE" && ! "$ZEROX_DOCKER_IMAGE" =~ ^[a-z0-9][a-z0-9_.-]*/[a-z0-9]+([._-][a-z0-9]+)*$ ]]; then
+            echo "变量 ZEROX_DOCKER_IMAGE 格式应为 Docker Hub 用户名/镜像名，例如 kismetpro/0x" >&2
             exit 1
           fi
           echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
+      - name: Detect optional integrations
+        id: integrations
+        env:
+          ZEROX_DOCKER_IMAGE: ${{ vars.ZEROX_DOCKER_IMAGE }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
+          DEMO_URL: ${{ vars.DEMO_URL }}
+        run: |
+          set -euo pipefail
+          dockerhub=false
+          if [[ -n "$ZEROX_DOCKER_IMAGE" && -n "$DOCKERHUB_USERNAME" && -n "$DOCKERHUB_TOKEN" ]]; then
+            dockerhub=true
+          elif [[ -n "$ZEROX_DOCKER_IMAGE$DOCKERHUB_USERNAME$DOCKERHUB_TOKEN" ]]; then
+            echo "::warning::Docker Hub 未配置完整（需变量 ZEROX_DOCKER_IMAGE + 机密 DOCKERHUB_USERNAME/DOCKERHUB_TOKEN），本次只发布 GHCR 镜像"
+          fi
+          demo=false
+          if [[ -n "$VERCEL_TOKEN" && -n "$VERCEL_ORG_ID" && -n "$VERCEL_PROJECT_ID" && -n "$DEMO_URL" ]]; then
+            demo=true
+          fi
+          {
+            echo "dockerhub=$dockerhub"
+            echo "demo=$demo"
+          } >> "$GITHUB_OUTPUT"
+          if [[ "$dockerhub" == "false" ]]; then
+            echo "::notice::镜像发布到 GHCR：ghcr.io/${GITHUB_REPOSITORY}"
+          else
+            echo "::notice::镜像同时发布到 GHCR 与 Docker Hub 的 ${ZEROX_DOCKER_IMAGE}"
+          fi
+          if [[ "$demo" == "false" ]]; then
+            echo "::notice::未配置 Vercel（VERCEL_TOKEN / VERCEL_ORG_ID / VERCEL_PROJECT_ID / DEMO_URL），跳过在线 Demo 部署"
+          fi
       - uses: actions/checkout@v4
         with:
           ref: refs/tags/${{ steps.version.outputs.tag }}
@@ -142,7 +179,9 @@ jobs:
           for target in linux-amd64 linux-arm64 darwin-amd64 darwin-arm64 windows-amd64; do
             test -s "0x-${version}-${target}.zip"
           done
-          sha256sum *.zip > SHA256SUMS
+          # 用 -- 终止选项解析，避免 glob 命中以短横线开头的文件名；
+          # 输出保持裸文件名（不加 ./），在线更新按资产名比对校验文件。
+          sha256sum -- *.zip > SHA256SUMS
           sha256sum --check SHA256SUMS
       - name: Replace release only when the tag moved to a new commit
         env:
@@ -174,7 +213,8 @@ jobs:
             dist/SHA256SUMS
           generate_release_notes: true
           body: |
-            Docker Hub 镜像：`${{ vars.ZEROX_DOCKER_IMAGE }}:${{ needs.prepare.outputs.tag }}`，同时提供 `latest`。
+            容器镜像（GHCR）：`ghcr.io/${{ github.repository }}:${{ needs.prepare.outputs.tag }}`，同时提供 `latest`。
+            ${{ needs.prepare.outputs.dockerhub == 'true' && format('Docker Hub 镜像：`{0}:{1}`，同时提供 `latest`。', vars.ZEROX_DOCKER_IMAGE, needs.prepare.outputs.tag) || '' }}
             支持 Linux AMD64 / ARM64，Docker 会自动选择宿主机架构。
             程序包提供 Linux、macOS 的 AMD64 / ARM64 及 Windows AMD64，并附 SHA256SUMS。
             部署和在线更新说明见本仓库 README。
@@ -185,6 +225,7 @@ jobs:
   # 直接依赖发布 job，保证 ZIP、校验文件和镜像全部发布成功后才更新 Demo。
   demo:
     needs: [prepare, release]
+    if: needs.prepare.outputs.demo == 'true'
     uses: ./.github/workflows/demo.yml
     with:
       tag: ${{ needs.prepare.outputs.tag }}
@@ -195,6 +236,9 @@ jobs:
   # ④ 在原生 AMD64 / ARM64 runner 上构建和测试，再推送架构镜像。
   docker:
     needs: [prepare, binaries]
+    permissions:
+      contents: read
+      packages: write
     strategy:
       fail-fast: false
       matrix:
@@ -223,10 +267,35 @@ jobs:
           name: bin-linux-${{ matrix.arch }}
           path: dist/${{ matrix.arch }}
       - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Log in to Docker Hub
+        if: needs.prepare.outputs.dockerhub == 'true'
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Compute image tags
+        id: tags
+        env:
+          DOCKERHUB_ENABLED: ${{ needs.prepare.outputs.dockerhub }}
+          DOCKERHUB_IMAGE: ${{ vars.ZEROX_DOCKER_IMAGE }}
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          ARCH: ${{ matrix.arch }}
+        run: |
+          set -euo pipefail
+          {
+            echo "tags<<EOF"
+            echo "ghcr.io/${GITHUB_REPOSITORY}:${RELEASE_TAG}-${ARCH}"
+            if [[ "$DOCKERHUB_ENABLED" == "true" ]]; then
+              echo "${DOCKERHUB_IMAGE}:${RELEASE_TAG}-${ARCH}"
+            fi
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
       - name: Build image for native smoke test
         uses: docker/build-push-action@v6
         with:
@@ -255,7 +324,7 @@ jobs:
           context: .
           platforms: linux/${{ matrix.arch }}
           push: true
-          tags: ${{ vars.ZEROX_DOCKER_IMAGE }}:${{ needs.prepare.outputs.tag }}-${{ matrix.arch }}
+          tags: ${{ steps.tags.outputs.tags }}
           labels: |
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
             org.opencontainers.image.version=${{ needs.prepare.outputs.tag }}
@@ -267,19 +336,44 @@ jobs:
   docker-publish:
     needs: [prepare, docker]
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
     steps:
       - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Log in to Docker Hub
+        if: needs.prepare.outputs.dockerhub == 'true'
+        uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Publish multi-platform image
+      - name: Publish multi-platform images
         env:
-          IMAGE: ${{ vars.ZEROX_DOCKER_IMAGE }}
+          DOCKERHUB_ENABLED: ${{ needs.prepare.outputs.dockerhub }}
+          DOCKERHUB_IMAGE: ${{ vars.ZEROX_DOCKER_IMAGE }}
           RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
         run: |
-          docker buildx imagetools create \
-            --tag "$IMAGE:$RELEASE_TAG" --tag "$IMAGE:latest" \
-            "$IMAGE:$RELEASE_TAG-amd64" "$IMAGE:$RELEASE_TAG-arm64"
-          docker buildx imagetools inspect "$IMAGE:$RELEASE_TAG" --raw > /tmp/0x-manifest.json
-          jq -e '[.manifests[].platform | select(.os == "linux") | .architecture] | index("amd64") != null and index("arm64") != null' /tmp/0x-manifest.json
+          set -euo pipefail
+          images=("ghcr.io/${GITHUB_REPOSITORY}")
+          if [[ "$DOCKERHUB_ENABLED" == "true" ]]; then
+            images+=("$DOCKERHUB_IMAGE")
+          fi
+          mkdir -p /tmp/0x-manifests
+          for image in "${images[@]}"; do
+            docker buildx imagetools create \
+              --tag "$image:$RELEASE_TAG" --tag "$image:latest" \
+              "$image:$RELEASE_TAG-amd64" "$image:$RELEASE_TAG-arm64"
+            manifest="/tmp/0x-manifests/$(printf '%s' "$image" | tr '/:.' '___').json"
+            docker buildx imagetools inspect "$image:$RELEASE_TAG" --raw > "$manifest"
+          done
+          for manifest in /tmp/0x-manifests/*.json; do
+            jq -e '[.manifests[].platform | select(.os == "linux") | .architecture] | index("amd64") != null and index("arm64") != null' "$manifest" >/dev/null
+          done
+          printf '已发布镜像：\n'
+          printf '  %s\n' "${images[@]}"
