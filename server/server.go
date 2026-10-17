@@ -158,6 +158,8 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 		profChatAgents: map[int64]*agent.ChatAgent{},
 		provByProfile:  map[int64]*provEntry{}, llmHealth: newLLMHealthRegistry(m.pg),
 		taskAgents: map[string]*taskAgentBundle{}, archiveWake: make(chan struct{}, 1)}
+	s.engine.rounds.onComplete = s.finishTaskRound
+	s.engine.configureTaskRounds(m.TaskRoundRobin())
 	s.initSideQuestions()
 	if m.pg != nil {
 		if err := s.basicAuth.load(m.pg); err != nil {
@@ -2031,7 +2033,8 @@ func (s *Server) findings(w http.ResponseWriter, r *http.Request) {
 	tid, _ := strconv.ParseInt(t.ID, 10, 64)
 	meta, err := s.m.pg.FindingMetaByNodeID(tid)
 	if err != nil {
-		log.Printf("[findings] task=%s meta: %v", t.ID, err)
+		writeErr(w, 500, err.Error())
+		return
 	}
 	var aidSet []int64
 	for _, m := range meta {
@@ -2059,7 +2062,8 @@ func (s *Server) findings(w http.ResponseWriter, r *http.Request) {
 		}
 		sourceMeta, metaErr := s.m.pg.FindingMetaByNodeID(source.Task.TaskID)
 		if metaErr != nil {
-			log.Printf("[findings] source_task=%d meta: %v", source.Task.TaskID, metaErr)
+			writeErr(w, 500, metaErr.Error())
+			return
 		}
 		var sourceAssetIDs []int64
 		for _, item := range sourceMeta {
@@ -3406,6 +3410,7 @@ func (s *Server) settingsPayload() map[string]any {
 		"workers":                  s.m.Workers(),               // 并发工作 agent 数(默认3)；对之后启动的任务生效
 		"task_concurrency_enabled": concOn,                      // 任务并发上限开关(默认关)
 		"task_concurrency_limit":   concLimit,                   // 同时运行任务上限(开启后默认5)
+		"task_round_robin":         s.m.pg.GetBool(settingTaskRoundRobin, false),
 		// LLM 轮询(故障转移)。默认关；开启后走全局激活配置的 agent 在当前配置不可用时
 		// 自动切到下一个配置。bind_fallback 仅在轮询开启时有意义(默认关)。
 		"llm_pool_enabled":       s.m.LLMPoolEnabled(),
@@ -3479,6 +3484,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		// 任务并发上限:同时「运行中」的任务数上限。关闭=不限;开启后新建任务超限则排队,有空位自动启动。
 		ConcurrencyEnabled *bool `json:"task_concurrency_enabled"`
 		ConcurrencyLimit   *int  `json:"task_concurrency_limit"`
+		TaskRoundRobin     *bool `json:"task_round_robin"`
 		// LLM 轮询(故障转移)开关 + 「绑定配置失败也兜底回轮询链」开关。两者都需要
 		// 重建 provider 链才生效，走下面的 changed → applyLLM 路径。
 		LLMPoolEnabled      *bool `json:"llm_pool_enabled"`
@@ -3554,20 +3560,8 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if req.ConcurrencyEnabled != nil || req.ConcurrencyLimit != nil {
-		// 部分 PUT:未给的字段用当前值兜底,避免只改一个把另一个重置。
-		curOn, curLimit := s.m.ConcurrencyLimit()
-		if curLimit == 0 {
-			curLimit = defaultConcurrencyLimit
-		}
-		on, limit := curOn, curLimit
-		if req.ConcurrencyEnabled != nil {
-			on = *req.ConcurrencyEnabled
-		}
-		if req.ConcurrencyLimit != nil {
-			limit = *req.ConcurrencyLimit
-		}
-		if err := s.m.SetConcurrency(on, limit); err != nil {
+	if req.ConcurrencyEnabled != nil || req.ConcurrencyLimit != nil || req.TaskRoundRobin != nil {
+		if err := s.setTaskScheduling(req.ConcurrencyEnabled, req.ConcurrencyLimit, req.TaskRoundRobin); err != nil {
 			writeErr(w, 400, err.Error())
 			return
 		}
@@ -3947,17 +3941,30 @@ func (s *Server) getReport(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 404, "no active task")
 		return
 	}
-	findings, _ := t.Store.ListByKind(db.KindFinding, 1000) // 纯漏洞（事实是独立的 KindFact，不进报告）
-	counts := map[string]int{}
-	for _, ty := range []string{"root_domain", "ip", "subdomain", "app", "service", "endpoint"} {
-		ns, _ := s.m.Assets().QueryByType(ty, 100000, 0)
-		if len(ns) > 0 {
-			counts[ty] = len(ns)
-		}
+	findings, err := t.Store.ListByKind(db.KindFinding, 1000)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	taskID, _ := strconv.ParseInt(t.ID, 10, 64)
+	counts, err := s.m.Assets().CountsByTypeForTask(taskID)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	meta, err := s.m.pg.FindingMetaByNodeID(taskID)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	numbers := make(map[int64]string, len(meta))
+	for nodeID, f := range meta {
+		numbers[nodeID] = db.FindingNumber(f.ID)
 	}
 	md := report.Markdown(report.Input{
 		Title: t.Description, Goal: t.Goal, GeneratedAt: time.Now(),
 		AssetCounts: counts, Findings: findings,
+		FindingNumbers: numbers,
 	})
 	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
 	w.WriteHeader(200)

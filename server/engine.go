@@ -91,6 +91,7 @@ func retryableWorkerModelError(reason harness.TerminalReason, err error) bool {
 // (re)installed at runtime (LLM configured from the UI); the loops always run
 // but idle until an LLM is set.
 type Engine struct {
+	rounds   taskRoundScheduler
 	m        *Manager
 	debounce time.Duration
 
@@ -285,6 +286,10 @@ func (e *Engine) StopTask(taskID string) {
 	e.stamped.Delete(taskID)
 	e.inflight.Delete(taskID)
 	e.coordStarted.Delete(taskID)
+	e.rounds.mu.Lock()
+	delete(e.rounds.rounds, taskID)
+	delete(e.rounds.idle, taskID)
+	e.rounds.mu.Unlock()
 	e.deleteMu.Lock()
 	e.deleting.Delete(taskID)
 	e.deleteMu.Unlock()
@@ -669,6 +674,9 @@ func (e *Engine) emitActivity(t *Task, r db.Activity) db.Activity {
 		r.CreatedAt = time.Now()
 	}
 	e.bc.Publish(t.ID, r)
+	if r.Kind == "tool_result" && r.Tool == "add_intent" && !r.IsError {
+		t.wakeWorkers()
+	}
 	e.touch(t.ID)
 	return r
 }
@@ -759,6 +767,10 @@ func (e *Engine) Run(ctx context.Context, t *Task) {
 	}
 	rt := e.registerTaskRoutines(ctx, t.ID, 1+workers)
 	e.deleteMu.RUnlock()
+	e.openTaskRound(t.ID)
+	if has, _ := t.Store.HasActiveIntent(); has {
+		e.prepareTaskRound(t, nil)
+	}
 	e.touch(t.ID)
 	runTaskRoutine(rt, func(loopCtx context.Context) { e.plannerLoop(loopCtx, t) })
 	for i := 0; i < workers; i++ {
@@ -809,14 +821,25 @@ func (e *Engine) plannerLoop(ctx context.Context, t *Task) {
 	runRound := func(src string) {
 		// debounce: coalesce a burst of changes into one planning round
 		timer := time.NewTimer(e.debounce)
+		defer timer.Stop()
 	drain:
 		for {
 			select {
+			case <-ctx.Done():
+				return
 			case <-t.notify:
 			case <-timer.C:
 				break drain
 			}
 		}
+		if !e.roundRunnable(t) {
+			return
+		}
+		round, allowed := e.beginRoundPlan(t)
+		if !allowed {
+			return
+		}
+		defer e.endRoundPlan(t, round)
 		planner, _ := e.snapshotFor(t)
 		if planner == nil {
 			return // idle until LLM configured
@@ -915,10 +938,19 @@ func (e *Engine) plannerLoop(ctx context.Context, t *Task) {
 
 func (e *Engine) workerLoop(ctx context.Context, t *Task, name string) {
 	for {
+		wake := t.workerWakeSignal()
 		select {
 		case <-ctx.Done():
 			return
 		default:
+		}
+		// Check cheap lifecycle gates before resolving providers (which reads DB
+		// profiles). Waiting tasks wake on state changes, not per-worker polling.
+		if !e.roundWorkerRunnable(t) {
+			if waitWorkerWake(ctx, wake) {
+				return
+			}
+			continue
 		}
 		_, worker := e.snapshotFor(t)
 		if worker == nil {
@@ -953,7 +985,7 @@ func (e *Engine) workerLoop(ctx context.Context, t *Task, name string) {
 		}
 		claimed := e.runWorkerStep(ctx, t, name, worker)
 		e.decInflight(t.ID)
-		if !claimed && sleepCtx(ctx, 800*time.Millisecond) {
+		if !claimed && waitWorkerWake(ctx, wake) {
 			return
 		}
 	}
@@ -963,7 +995,21 @@ func (e *Engine) workerLoop(ctx context.Context, t *Task, name string) {
 // runIntent. Returns false when nothing was claimable. The pool worker loop is its
 // only caller.
 func (e *Engine) runWorkerStep(ctx context.Context, t *Task, name string, worker *agent.Worker) bool {
-	intent := e.claimNext(t, name)
+	var intent *db.Node
+	if e.rounds.enabled.Load() {
+		var round *taskRound
+		intent, round = e.takeRoundIntent(t.ID)
+		if intent == nil {
+			return false
+		}
+		defer e.endRoundWork(t.ID, round)
+		claimed, err := t.Store.ClaimIntent(intent.ID, name)
+		if err != nil || !claimed {
+			return false
+		}
+	} else {
+		intent = e.claimNext(t, name)
+	}
 	if intent == nil {
 		return false
 	}
@@ -1169,8 +1215,11 @@ func (e *Engine) runIntent(ctx context.Context, t *Task, name string, worker *ag
 // task pause/delete/shutdown still stops it). Returns an error if the run could not
 // be started; the intent is left untouched in that case.
 func (e *Engine) runDetachedIntent(ctx context.Context, t *Task, intentID int64, requestID, message, agentMessage string) error {
-	if !e.beginTaskOperation(t.ID) {
-		return fmt.Errorf("task is being deleted")
+	if t.lifecycleSnapshot().Queued {
+		return fmt.Errorf("任务正在排队或轮询等待，请获得运行槽后再继续意图")
+	}
+	if !e.beginDetachedRoundOperation(t) {
+		return fmt.Errorf("任务正在删除或等待下一轮运行槽")
 	}
 	release := true
 	defer func() {
@@ -1235,11 +1284,9 @@ func sleepCtx(ctx context.Context, d time.Duration) (done bool) {
 }
 
 func (e *Engine) claimNext(t *Task, name string) *db.Node {
-	fr, _ := t.Store.Frontier(20)
-	for _, in := range fr {
-		if ok, _ := t.Store.ClaimIntent(in.ID, name); ok {
-			return in
-		}
+	n, err := t.Store.ClaimNextIntent(name)
+	if err != nil {
+		log.Printf("[worker %s] task %s claim: %v", name, t.ID, err)
 	}
-	return nil
+	return n
 }

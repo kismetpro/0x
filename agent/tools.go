@@ -916,6 +916,7 @@ func (t *ToolSet) listFindings() actool.CoreTool {
 				m := compactFinding(n)
 				if n.FindingID > 0 {
 					m["finding_id"], m["finding_node_id"], m["traffic_count"] = n.FindingID, n.ID, n.TrafficCount
+					m["number"] = db.FindingNumber(n.FindingID)
 				}
 				if n.Inherited {
 					m["task_id"] = n.SourceTaskID

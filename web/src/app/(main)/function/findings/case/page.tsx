@@ -107,6 +107,7 @@ function CaseDetail() {
           <Link href="/function/findings">返回漏洞列表</Link>
         </Button>
         <h1 className="font-semibold text-xl">{c.title}</h1>
+        {c.number && <code className="text-muted-foreground text-sm">{c.number}</code>}
         <FindingSeverityCounts counts={c} />
       </div>
       {error ? (

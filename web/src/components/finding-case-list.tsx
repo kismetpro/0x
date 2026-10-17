@@ -86,7 +86,7 @@ export function FindingCaseMemberRow({
           className="truncate font-medium hover:underline"
           href={`/function/findings/detail?id=${id}${contextTask ? `&context_task=${contextTask}` : ""}`}
         >
-          #{id} {[f.name, f.vulnclass].find((v) => v?.trim()) ?? "未分类"}
+          {f.number ?? `#${id}`} {[f.name, f.vulnclass].find((v) => v?.trim()) ?? "未分类"}
         </Link>
         <span className="truncate text-muted-foreground text-xs">{f.summary}</span>
       </div>
@@ -509,7 +509,7 @@ export function FindingCaseFolder({
               </Link>
             </CardTitle>
             <CardDescription>
-              漏洞文件夹 · {group.count} 条原始上报 ·{" "}
+              {group.number ?? `#${group.id}`} · 漏洞文件夹 · {group.count} 条原始上报 ·{" "}
               {group.report_version !== group.version ? "统一报告待更新" : "统一报告已生成"}
             </CardDescription>
             {presentation !== "compact" ? (

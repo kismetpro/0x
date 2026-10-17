@@ -57,7 +57,10 @@ func (e *Engine) beginTaskOperation(taskID string) bool {
 	return true
 }
 
-func (e *Engine) decInflight(taskID string) { atomic.AddInt64(e.inflightCounter(taskID), -1) }
+func (e *Engine) decInflight(taskID string) {
+	atomic.AddInt64(e.inflightCounter(taskID), -1)
+	e.maybeFinishTaskRound(taskID)
+}
 func (e *Engine) inflightCount(taskID string) int64 {
 	return atomic.LoadInt64(e.inflightCounter(taskID))
 }
@@ -232,6 +235,13 @@ func (e *Engine) settleTask(ctx context.Context, t *Task) {
 func (e *Engine) runFinalPlannerRound(ctx context.Context, t *Task) (met bool) {
 	if e.IsDeleting(t.ID) {
 		return false
+	}
+	// A queued round-robin task must acquire its normal slot even for deadline
+	// finalization; simultaneous expirations must not start 30 extra planners.
+	for e.rounds.enabled.Load() && t.lifecycleSnapshot().Queued {
+		if e.IsDeleting(t.ID) || isTerminalStatus(t.lifecycleSnapshot().Status) || sleepCtx(ctx, deadlinePollInterval) {
+			return false
+		}
 	}
 	planner, _ := e.snapshotFor(t)
 	for planner == nil {

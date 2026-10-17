@@ -217,6 +217,20 @@ func (f FindingFilter) where() (string, []any) {
 		conds = append(conds, fmt.Sprintf("f.asset_ids @> ANY($%d::jsonb[])", len(args)))
 	}
 	if query := strings.TrimSpace(f.Query); query != "" {
+		upper := strings.ToUpper(query)
+		for _, prefix := range []string{"0X-V-", "0X-C-"} {
+			if strings.HasPrefix(upper, prefix) {
+				if id, err := strconv.ParseInt(strings.TrimPrefix(upper, prefix), 10, 64); err == nil && id > 0 {
+					args = append(args, id)
+					if prefix == "0X-V-" {
+						conds = append(conds, fmt.Sprintf("f.id=$%d", len(args)))
+					} else {
+						conds = append(conds, fmt.Sprintf("EXISTS(SELECT 1 FROM finding_case_members m WHERE m.finding_id=f.id AND m.case_id=$%d)", len(args)))
+					}
+					return " WHERE " + strings.Join(conds, " AND "), args
+				}
+			}
+		}
 		escaped := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(query)
 		args = append(args, "%"+escaped+"%")
 		placeholder := fmt.Sprintf("$%d", len(args))

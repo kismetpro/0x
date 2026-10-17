@@ -159,9 +159,11 @@ func FromEnv() (Config, bool) {
 	}
 
 	c := Config{
-		BaseURL: os.Getenv("ZEROX_LLM_BASE_URL"),
-		Model:   os.Getenv("ZEROX_LLM_MODEL"),
-		Proxy:   strings.TrimSpace(os.Getenv("ZEROX_LLM_PROXY")),
+		BaseURL:         os.Getenv("ZEROX_LLM_BASE_URL"),
+		Model:           os.Getenv("ZEROX_LLM_MODEL"),
+		Proxy:           strings.TrimSpace(os.Getenv("ZEROX_LLM_PROXY")),
+		ThinkingType:    strings.TrimSpace(os.Getenv("ZEROX_LLM_THINKING_TYPE")),
+		ReasoningEffort: strings.TrimSpace(os.Getenv("ZEROX_LLM_REASONING_EFFORT")),
 		// 默认流式;ZEROX_LLM_STREAM=false/0/off 显式关闭走非流式。
 		Stream: !isFalsy(os.Getenv("ZEROX_LLM_STREAM")),
 	}

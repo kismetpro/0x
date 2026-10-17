@@ -65,7 +65,10 @@ function Row({
           <StatusBadge domain="severity" value={f.severity} dot />
           <div className="flex min-w-0 flex-1 flex-col gap-1">
             <div className="flex min-w-0 items-center gap-2">
-              <span className="truncate font-medium">{findingLabel(f)}</span>
+              <span className="truncate font-medium">
+                {f.number ? `${f.number} · ` : ""}
+                {findingLabel(f)}
+              </span>
               {f.inherited && f.source_task_id && (
                 <Badge variant="outline" className="shrink-0">
                   来源 #{f.source_task_id} · 只读

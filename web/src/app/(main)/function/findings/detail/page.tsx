@@ -152,7 +152,9 @@ function FindingDetailInner() {
           <h1 className="max-w-md truncate text-sm font-semibold" title={title}>
             {title}
           </h1>
-          <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">#{finding.id}</code>
+          <code className="rounded bg-muted px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
+            {finding.number ?? `#${finding.id}`}
+          </code>
           <Separator orientation="vertical" className="mx-1 h-4" />
           <StatusBadge domain="severity" value={finding.severity} dot />
           <StatusBadge domain="finding" value={finding.status} dot />
@@ -207,7 +209,12 @@ function FindingDetailInner() {
               <Card>
                 <CardHeader className="flex-row items-center justify-between">
                   <CardTitle className="text-sm">详细报告</CardTitle>
-                  {finding.report && <CopyButton text={finding.report} successMessage="已复制详细报告" />}
+                  {finding.report && (
+                    <CopyButton
+                      text={`- **漏洞编号**：${finding.number ?? finding.id}\n\n${finding.report}`}
+                      successMessage="已复制详细报告（含漏洞编号）"
+                    />
+                  )}
                 </CardHeader>
                 <CardContent>
                   {finding.report_stale ? (

@@ -272,6 +272,7 @@ export function FindingsTable({
                     ) : (
                       <span className="truncate font-medium">{f.name || f.vulnclass || "未分类"}</span>
                     )}
+                    {f.number && <code className="text-xs text-muted-foreground">{f.number}</code>}
                     <span className="truncate text-xs text-muted-foreground">{f.summary}</span>
                     {matchedIds && !matchedIds.includes(Number(f.finding_id)) ? (
                       <Badge variant="outline" className="w-fit">

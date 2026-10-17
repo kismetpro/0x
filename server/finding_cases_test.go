@@ -279,8 +279,14 @@ func TestFindingCaseGroupedTrafficExportAndInheritedAccess(t *testing.T) {
 		}
 		if strings.HasSuffix(file.Name, ".md") {
 			mdCount++
-			if strings.HasPrefix(file.Name, "case_") {
+			if !strings.Contains(string(data), "**漏洞编号**") {
+				t.Fatal("exported report lost its stable finding number")
+			}
+			if strings.HasPrefix(file.Name, db.FindingCaseNumber(cid)+"_") {
 				caseCount++
+				if !strings.Contains(string(data), db.FindingCaseNumber(cid)) {
+					t.Fatal("case filename/body numbers diverged")
+				}
 				if !strings.Contains(string(data), fmt.Sprintf("original script #%d", other.FindingID)) {
 					t.Fatal("stale export lost an original report")
 				}

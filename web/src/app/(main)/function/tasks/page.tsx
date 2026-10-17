@@ -1071,6 +1071,7 @@ function SortableTaskHead({
 function ConcurrencySettingsDialog() {
   const [open, setOpen] = React.useState(false);
   const [enabled, setEnabled] = React.useState(false);
+  const [roundRobin, setRoundRobin] = React.useState(false);
   const [limit, setLimit] = React.useState("5");
   const [loading, setLoading] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
@@ -1082,6 +1083,7 @@ function ConcurrencySettingsDialog() {
       .settings()
       .then((settings) => {
         setEnabled(!!settings.task_concurrency_enabled);
+        setRoundRobin(!!settings.task_round_robin);
         setLimit(String(settings.task_concurrency_limit ?? 5));
       })
       .catch(() => {
@@ -1094,7 +1096,11 @@ function ConcurrencySettingsDialog() {
     const nextLimit = Math.max(1, Math.floor(Number(limit) || 5));
     setSaving(true);
     try {
-      await api.setSettings({ task_concurrency_enabled: enabled, task_concurrency_limit: nextLimit });
+      await api.setSettings({
+        task_concurrency_enabled: enabled,
+        task_concurrency_limit: nextLimit,
+        task_round_robin: roundRobin,
+      });
       toast.success(enabled ? `已开启并发限制：最多同时运行 ${nextLimit} 个任务` : "已关闭任务并发限制");
       setOpen(false);
     } catch (error) {
@@ -1115,7 +1121,7 @@ function ConcurrencySettingsDialog() {
         <DialogHeader>
           <DialogTitle>任务并发限制</DialogTitle>
           <DialogDescription>
-            限制同时运行的任务数量。达到上限后，新任务会按创建顺序排队并在空位出现时自动启动。
+            限制同时执行的任务数，与每任务的子代理数量（默认 3）独立。自动等待不等于手动暂停。
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-5 py-2">
@@ -1140,6 +1146,20 @@ function ConcurrencySettingsDialog() {
               />
             </div>
           )}
+          <div className="flex items-center justify-between gap-4">
+            <div className="grid gap-1">
+              <Label htmlFor="task-round-robin">按轮轮询任务</Label>
+              <span className="text-muted-foreground text-xs">
+                每轮规划 + 一批子代理自然结束后排到队尾，空位立即补位；不打断工具执行或丢弃上下文。需开启并发限制。
+              </span>
+            </div>
+            <Switch
+              id="task-round-robin"
+              checked={roundRobin}
+              onCheckedChange={setRoundRobin}
+              disabled={loading || !enabled}
+            />
+          </div>
         </div>
         <DialogFooter>
           <DialogClose asChild>
@@ -3278,8 +3298,12 @@ function CreateTaskSheet({
             </Field>
             <FieldSet>
               <FieldLegend>计划启动（可选）</FieldLegend>
-              <label className="flex items-center gap-2 text-sm">
-                <Checkbox checked={scheduleEnabled} onCheckedChange={(v) => setScheduleEnabled(!!v)} />
+              <label htmlFor="task-create-schedule-enabled" className="flex items-center gap-2 text-sm">
+                <Checkbox
+                  id="task-create-schedule-enabled"
+                  checked={scheduleEnabled}
+                  onCheckedChange={(v) => setScheduleEnabled(!!v)}
+                />
                 创建时附加计划，按时间窗口启动和暂停
               </label>
               {scheduleEnabled && (
@@ -3382,8 +3406,9 @@ function CreateTaskSheet({
                       />
                     </Field>
                   </div>
-                  <label className="flex items-center gap-2 text-sm">
+                  <label htmlFor="task-create-start-immediately" className="flex items-center gap-2 text-sm">
                     <Checkbox
+                      id="task-create-start-immediately"
                       checked={schedule.start_immediately}
                       onCheckedChange={(v) => setSchedule({ ...schedule, start_immediately: !!v })}
                     />

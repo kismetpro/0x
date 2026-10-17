@@ -65,6 +65,7 @@ func jsonbClean(b []byte) []byte {
 
 // Node is a typed reasoning node (= old task_nodes). kind ∈ goal|intent|finding|hint.
 type Node struct {
+	FindingNumber string          `json:"number,omitempty"`
 	FindingID     int64           `json:"finding_id,omitempty"` // populated by finding-aware reads; never inferred from ID
 	FindingNodeID int64           `json:"finding_node_id,omitempty"`
 	TrafficCount  int             `json:"traffic_count,omitempty"`
@@ -1178,6 +1179,20 @@ WHERE id=$2 AND exploration_id=$3 AND kind='intent' AND state='open'`, owner, id
 	}
 	n, _ := res.RowsAffected()
 	return n == 1, nil
+}
+
+// ClaimNextIntent fetches and claims in one round trip. SKIP LOCKED lets workers
+// claim disjoint rows instead of all loading the same frontier and racing CAS.
+func (s *ExplorationStore) ClaimNextIntent(owner string) (*Node, error) {
+	n, err := scanNode(s.db.QueryRow(`UPDATE exploration_nodes SET state='running',owner=$2
+		WHERE id=(SELECT id FROM exploration_nodes
+			WHERE exploration_id=$1 AND kind='intent' AND state='open'
+			ORDER BY priority DESC,id ASC LIMIT 1 FOR UPDATE SKIP LOCKED)
+		RETURNING `+nodeCols, s.expID, owner))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	return n, err
 }
 
 // Stats returns node counts grouped by kind (for dashboard).

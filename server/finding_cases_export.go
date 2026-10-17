@@ -97,10 +97,10 @@ func (s *Server) consolidateFindingCaseExport(fs []*db.DBFinding, plan *findingC
 						composite.AssetIDs = append(composite.AssetIDs, aid)
 					}
 				}
-				refs = append(refs, fmt.Sprintf("#%d [%s] %s", member.ID, member.Severity, member.Name))
-				fmt.Fprintf(&evidence, "原始上报 #%d：%s\n%s\n\n", member.ID, member.Summary, member.Evidence)
+				refs = append(refs, fmt.Sprintf("%s [%s] %s", member.Number(), member.Severity, member.Name))
+				fmt.Fprintf(&evidence, "原始上报 %s：%s\n%s\n\n", member.Number(), member.Summary, member.Evidence)
 				if member.Report != "" {
-					fmt.Fprintf(&evidence, "原始报告 #%d：\n%s\n\n", member.ID, member.Report)
+					fmt.Fprintf(&evidence, "原始报告 %s：\n%s\n\n", member.Number(), member.Report)
 				}
 				for _, b := range member.TrafficBindings {
 					b.Note = fmt.Sprintf("来自上报 #%d；%s", member.ID, b.Note)

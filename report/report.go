@@ -14,14 +14,16 @@ import (
 
 // Input bundles what the report needs.
 type Input struct {
-	Title       string
-	Goal        string
-	GeneratedAt time.Time
-	AssetCounts map[string]int
-	Findings    []*db.Node
+	Title          string
+	Goal           string
+	GeneratedAt    time.Time
+	AssetCounts    map[string]int
+	Findings       []*db.Node
+	FindingNumbers map[int64]string // exploration node ID -> standalone finding number
 }
 
 type findingView struct {
+	Number    string
 	VulnClass string
 	Name      string
 	Severity  string
@@ -40,7 +42,7 @@ func parseFinding(n *db.Node) findingView {
 		} `json:"evidence"`
 	}
 	_ = json.Unmarshal(n.Payload, &p)
-	return findingView{p.VulnClass, p.Name, p.Severity, p.Summary, p.Evidence.PoC}
+	return findingView{VulnClass: p.VulnClass, Name: p.Name, Severity: p.Severity, Summary: p.Summary, PoC: p.Evidence.PoC}
 }
 
 var sevRank = map[string]int{"critical": 0, "high": 1, "medium": 2, "low": 3, "": 4}
@@ -76,11 +78,17 @@ func Markdown(in Input) string {
 	} else {
 		fs := make([]findingView, 0, len(in.Findings))
 		for _, n := range in.Findings {
-			fs = append(fs, parseFinding(n))
+			f := parseFinding(n)
+			f.Number = in.FindingNumbers[n.ID]
+			if f.Number == "" {
+				f.Number = fmt.Sprintf("0X-N-%08d", n.ID)
+			}
+			fs = append(fs, f)
 		}
 		sort.SliceStable(fs, func(i, j int) bool { return sevRank[fs[i].Severity] < sevRank[fs[j].Severity] })
 		for i, f := range fs {
 			fmt.Fprintf(&b, "### %d. [%s] %s\n\n", i+1, strings.ToUpper(nz(f.Severity, "info")), nz(f.Name, nz(f.VulnClass, "未分类")))
+			fmt.Fprintf(&b, "- **漏洞编号**：%s\n\n", f.Number)
 			fmt.Fprintf(&b, "%s\n\n", nz(f.Summary, ""))
 			if f.PoC != "" {
 				fmt.Fprintf(&b, "**PoC / 证据：**\n\n```\n%s\n```\n\n", f.PoC)

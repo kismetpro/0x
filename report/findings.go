@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/kismetpro/0x/db"
 )
@@ -68,6 +69,7 @@ func FindingsMarkdown(fs []*db.DBFinding, generatedAt time.Time) string {
 	b.WriteString("## 漏洞明细\n\n")
 	for i, f := range items {
 		fmt.Fprintf(&b, "### %d. [%s] %s\n\n", i+1, strings.ToUpper(nz(f.Severity, "info")), findingTitle(f))
+		fmt.Fprintf(&b, "- **漏洞编号**：%s\n", f.Number())
 		if f.VulnClass != "" {
 			fmt.Fprintf(&b, "- **类别**：%s\n", f.VulnClass)
 		}
@@ -97,6 +99,7 @@ func FindingsMarkdown(fs []*db.DBFinding, generatedAt time.Time) string {
 func SingleFindingMarkdown(f *db.DBFinding, generatedAt time.Time) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "# [%s] %s\n\n", strings.ToUpper(nz(f.Severity, "info")), findingTitle(f))
+	fmt.Fprintf(&b, "- **漏洞编号**：%s\n", f.Number())
 	if f.VulnClass != "" {
 		fmt.Fprintf(&b, "- **类别**：%s\n", f.VulnClass)
 	}
@@ -125,14 +128,11 @@ func SingleFindingMarkdown(f *db.DBFinding, generatedAt time.Time) string {
 var unsafeFilenameChars = regexp.MustCompile(`[^\p{Han}\p{L}\p{N}._-]+`)
 
 // FindingFilename 为「一漏洞一文件」生成安全的 .md 文件名,形如
-// `critical_SQL注入_#123.md`。去掉路径分隔符与控制字符,避免 zip 内非法路径。
+// `0X-V-00000123_critical_SQL注入.md`。去掉路径分隔符与控制字符,避免 zip 内非法路径。
 func FindingFilename(f *db.DBFinding) string {
 	sev := nz(f.Severity, "info")
 	title := findingTitle(f)
-	name := fmt.Sprintf("%s_%s_#%d", sev, title, f.ID)
-	if f.ExportCaseID > 0 {
-		name = fmt.Sprintf("case_%d_%s_%s", f.ExportCaseID, sev, title)
-	}
+	name := fmt.Sprintf("%s_%s_%s", f.Number(), sev, title)
 	name = unsafeFilenameChars.ReplaceAllString(name, "_")
 	name = strings.Trim(name, "._")
 	if name == "" {
@@ -141,7 +141,11 @@ func FindingFilename(f *db.DBFinding) string {
 	// 防御性:再剥一层路径,杜绝 zip slip。
 	name = path.Base(name)
 	if len(name) > 120 {
+		// Truncate whole UTF-8 code points, keeping the leading number intact.
 		name = name[:120]
+		for !utf8.ValidString(name) {
+			name = name[:len(name)-1]
+		}
 	}
 	return name + ".md"
 }
@@ -155,7 +159,7 @@ func FindingsCSV(fs []*db.DBFinding) []byte {
 	var buf bytes.Buffer
 	buf.WriteString("\xEF\xBB\xBF") // UTF-8 BOM
 	w := csv.NewWriter(&buf)
-	_ = w.Write([]string{"ID", "名称", "类别", "严重等级", "状态", "所属任务", "发现时间", "概述", "流量证据数量", "流量证据ID"})
+	_ = w.Write([]string{"ID", "漏洞编号", "名称", "类别", "严重等级", "状态", "所属任务", "发现时间", "概述", "流量证据数量", "流量证据ID"})
 	for _, f := range items {
 		id := fmt.Sprintf("%d", f.ID)
 		if f.ExportCaseID > 0 {
@@ -163,6 +167,7 @@ func FindingsCSV(fs []*db.DBFinding) []byte {
 		}
 		_ = w.Write([]string{
 			id,
+			f.Number(),
 			findingTitle(f),
 			f.VulnClass,
 			nz(f.Severity, "info"),

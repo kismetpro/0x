@@ -229,7 +229,7 @@ func (s *Server) admitTaskWhenScheduled(t *Task, mode string, requirePaused, sch
 func (s *Server) hasReadyQueuedTask(excludeID string) bool {
 	for _, task := range s.m.List() {
 		lifecycle := task.lifecycleSnapshot()
-		if task.ID != excludeID && lifecycle.Queued && !lifecycle.Paused && !isTerminalStatus(lifecycle.Status) && s.engine.ReadyFor(task) {
+		if task.ID != excludeID && lifecycle.Queued && !lifecycle.Paused && !isTerminalStatus(lifecycle.Status) && s.engine.roundAdmissionReady(task) && s.engine.ReadyFor(task) {
 			return true
 		}
 	}
@@ -237,6 +237,7 @@ func (s *Server) hasReadyQueuedTask(excludeID string) bool {
 }
 
 func (s *Server) startAdmittedTask(t *Task, mode string) {
+	s.engine.openTaskRound(t.ID)
 	if mode == "bootstrap" {
 		if !s.engine.beginTaskOperation(t.ID) {
 			return
@@ -265,6 +266,10 @@ func (s *Server) startAdmittedTask(t *Task, mode string) {
 func (s *Server) reconcileConcurrency() {
 	s.concMu.Lock()
 	defer s.concMu.Unlock()
+	s.reconcileConcurrencyLocked()
+}
+
+func (s *Server) reconcileConcurrencyLocked() {
 	enabled, limit := s.m.ConcurrencyLimit()
 
 	// A task whose provider chain becomes unavailable cannot do useful work and
@@ -335,7 +340,7 @@ func (s *Server) reconcileConcurrency() {
 		// Keep FIFO order, but do not consume a concurrency slot for a task
 		// whose explicit chain/global provider is unavailable. It will be retried
 		// after the user configures or resets its LLM chain.
-		if lifecycle.Paused || (enabled && !s.engine.ReadyFor(task)) {
+		if lifecycle.Paused || !s.engine.roundAdmissionReady(task) || (enabled && !s.engine.ReadyFor(task)) {
 			continue
 		}
 		mode := lifecycle.QueueMode

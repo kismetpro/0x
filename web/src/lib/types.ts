@@ -490,6 +490,7 @@ export interface FindingAsset {
 }
 
 export interface Finding {
+  number?: string;
   case_id?: string;
   traffic_count?: number;
   evidence_version?: number;
@@ -966,6 +967,7 @@ export interface Settings {
   // 任务并发上限:同时「运行中」的任务数上限。关闭=不限;开启后新建任务超限则排队,有空位自动启动。
   task_concurrency_enabled?: boolean; // 默认 false
   task_concurrency_limit?: number; // 开启后默认 5
+  task_round_robin?: boolean; // 一批子代理自然结束后自动排到队尾，非手动暂停
   // LLM 轮询(故障转移)。默认关；开启后「未指定模型」的 agent 在当前配置不可用
   // （余额不足/key 失效/限流/服务异常）时自动切到下一个配置。
   llm_pool_enabled?: boolean; // 默认 false
@@ -1673,6 +1675,7 @@ export interface FindingDistinctStats {
   unassessed: number;
 }
 export interface FindingCase {
+  number?: string;
   id: string;
   task_id: string | null;
   title: string;

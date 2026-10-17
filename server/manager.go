@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	actool "github.com/Autumn-27/norma/tool"
@@ -63,6 +64,9 @@ type Task struct {
 	Store                *pgdb.ExplorationStore `json:"-"`
 	Guard                *guard.Guard           `json:"-"`
 	notify               chan struct{}
+	wakeMu               sync.Mutex
+	workerWake           chan struct{}
+	graphRevision        atomic.Uint64
 	lifecycleMu          sync.RWMutex
 	llmMu                sync.RWMutex
 
@@ -271,6 +275,7 @@ const (
 	// 任务并发上限:开关 + 上限数。默认关闭;开启后默认上限 5(见 defaultConcurrencyLimit)。
 	settingConcurrencyOn    = "task_concurrency_enabled"
 	settingConcurrencyLimit = "task_concurrency_limit"
+	settingTaskRoundRobin   = "task_round_robin"
 	// 实验功能:noa 模型驱动上下文压缩(norma v0.4.0)。默认关闭——开启后平台接入的四类
 	// agent(planner/worker/主 agent/对话)由 noa 接管上下文压缩,取代内置 compaction。
 	// 每 run 读一次,切换只影响之后启动的 run。
@@ -312,6 +317,14 @@ func (m *Manager) SetConcurrency(enabled bool, limit int) error {
 		return err
 	}
 	return m.pg.SetSetting(settingConcurrencyOn, strconv.FormatBool(enabled))
+}
+
+func (m *Manager) TaskRoundRobin() bool {
+	if m.pg == nil {
+		return false
+	}
+	on, _ := m.ConcurrencyLimit()
+	return on && m.pg.GetBool(settingTaskRoundRobin, false)
 }
 
 // Workers returns the configured concurrent work-agent count (default 3). Read
@@ -1751,10 +1764,30 @@ func (m *Manager) List() []*Task {
 // Notify signals that the asset/exploration graph changed (debounced consumer
 // wakes the planner). Non-blocking.
 func (t *Task) Notify() {
+	t.graphRevision.Add(1)
+	t.wakeWorkers()
 	select {
 	case t.notify <- struct{}{}:
 	default:
 	}
+}
+
+func (t *Task) workerWakeSignal() <-chan struct{} {
+	t.wakeMu.Lock()
+	defer t.wakeMu.Unlock()
+	if t.workerWake == nil {
+		t.workerWake = make(chan struct{})
+	}
+	return t.workerWake
+}
+
+func (t *Task) wakeWorkers() {
+	t.wakeMu.Lock()
+	if t.workerWake != nil {
+		close(t.workerWake)
+	}
+	t.workerWake = make(chan struct{})
+	t.wakeMu.Unlock()
 }
 
 // NotifyDone is Notify plus a hint: a worker just finished intentID and that is

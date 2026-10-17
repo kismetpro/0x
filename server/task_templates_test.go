@@ -14,13 +14,30 @@ import (
 	"github.com/kismetpro/0x/db"
 )
 
+func templateHTTPTestServer(t *testing.T, m *Manager) (*Server, func()) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	s := New(ctx, m, t.TempDir(), t.TempDir(), t.TempDir())
+	return s, func() {
+		// Restored tasks also have live Engine loops. Stop their writers before
+		// closing PostgreSQL or removing TempDir (atomic claims expose this race).
+		cancel()
+		for _, task := range m.List() {
+			s.engine.StopTask(task.ID)
+		}
+		s.archiveWG.Wait()
+		<-s.side.done
+	}
+}
+
 func TestTaskTemplateHTTPCRUD(t *testing.T) {
 	m, err := NewManager(t.TempDir(), "")
 	if err != nil {
 		t.Skipf("postgres unavailable (%v) — skipping", err)
 	}
 	defer m.Close()
-	s := New(context.Background(), m, t.TempDir(), t.TempDir(), t.TempDir())
+	s, stop := templateHTTPTestServer(t, m)
+	defer stop()
 	h := s.Handler()
 	token, err := signJWT(s.jwtKey)
 	if err != nil {
@@ -90,7 +107,8 @@ func TestConversationPatchReturnsPinState(t *testing.T) {
 		t.Skipf("postgres unavailable (%v) — skipping", err)
 	}
 	defer m.Close()
-	s := New(context.Background(), m, t.TempDir(), t.TempDir(), t.TempDir())
+	s, stop := templateHTTPTestServer(t, m)
+	defer stop()
 	conversation, err := m.pg.CreateConversation("mainagent", "pin through http", nil)
 	if err != nil {
 		t.Fatal(err)

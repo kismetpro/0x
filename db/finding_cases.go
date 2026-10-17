@@ -15,6 +15,7 @@ import (
 var ErrFindingCaseConflict = errors.New("漏洞组已变更，请重新读取证据后再操作")
 
 type FindingCase struct {
+	Number         string    `json:"number"`
 	ID             int64     `json:"id,string"`
 	TaskID         *int64    `json:"task_id,string"`
 	Title          string    `json:"title"`
@@ -60,6 +61,7 @@ const caseColumns = `c.id,c.task_id,c.title,c.reason,c.severity,c.severity_reaso
 func scanCase(row interface{ Scan(...any) error }) (*FindingCase, error) {
 	c := new(FindingCase)
 	err := row.Scan(&c.ID, &c.TaskID, &c.Title, &c.Reason, &c.Severity, &c.SeverityReason, &c.Report, &c.Version, &c.ReportVersion, &c.Active, &c.CreatedAt)
+	c.Number = FindingCaseNumber(c.ID)
 	return c, err
 }
 func (d *DB) GetFindingCase(id int64) (*FindingCase, error) {

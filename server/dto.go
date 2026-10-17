@@ -305,6 +305,7 @@ func coverageAssetRefDTO(ref db.AssetRef) CoverageAssetRefDTO {
 // ---- Finding (frontend "Finding") ----
 
 type FindingDTO struct {
+	Number    string  `json:"number"`
 	CaseID    string  `json:"case_id,omitempty"`
 	MemberIDs []int64 `json:"member_ids,omitempty"`
 
@@ -387,6 +388,7 @@ func findingDTO(n *db.Node) FindingDTO {
 	_ = json.Unmarshal(n.Payload, &p)
 	d := FindingDTO{
 		ID:        i64s(n.ID),
+		Number:    fmt.Sprintf("0X-N-%08d", n.ID),
 		VulnClass: p.VulnClass,
 		Name:      p.Name,
 		Severity:  p.Severity,
@@ -420,6 +422,7 @@ func findingDTOsForOwner(taskID, description string, in []*db.Node, meta map[int
 		d.TaskDescription = description
 		if m, ok := meta[n.ID]; ok {
 			d.FindingID = i64s(m.ID)
+			d.Number = db.FindingNumber(m.ID)
 			d.Status = m.Status
 			d.TrafficCount = m.TrafficCount
 			d.Assets = findingAssetDTOs(m.AssetIDs, assets)
@@ -449,6 +452,7 @@ func findingFromDB(f *db.DBFinding, assets map[int64]*db.Asset) FindingDTO {
 		status = db.FindingPending
 	}
 	d := FindingDTO{
+		Number:       f.Number(),
 		ID:           i64s(f.ID),
 		FindingID:    i64s(f.ID),
 		TrafficCount: f.TrafficCount, EvidenceVersion: f.EvidenceVersion, ReportEvidenceVersion: f.ReportEvidenceVersion,
