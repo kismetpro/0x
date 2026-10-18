@@ -279,6 +279,9 @@ ON CONFLICT (name) DO NOTHING`,
 	if err := d.seedDefaultInterceptRulesV3(); err != nil {
 		return fmt.Errorf("seed intercept rules v3: %w", err)
 	}
+	if err := d.seedDefaultInterceptRulesV4(); err != nil {
+		return fmt.Errorf("seed intercept rules v4: %w", err)
+	}
 	if err := d.seedDefaultAssetInterceptRules(); err != nil {
 		return fmt.Errorf("seed asset intercept rules: %w", err)
 	}
@@ -614,4 +617,78 @@ WHERE NOT EXISTS (SELECT 1 FROM intercept_rules WHERE name = $1)`,
 		return fmt.Errorf("rule %q: %w", name, err)
 	}
 	return d.SetSetting("intercept_default_rules_v3", "done")
+}
+
+// seedDefaultInterceptRulesV4 增加「网络风暴」类默认拒绝规则。
+//
+// 起因：一次 /16（65534 个地址）的批量 PTR 反查以 128 线程跑在后台，持续约 120
+// 查询/秒、9 分钟；同一时段还有多任务并行的高速率全端口扫描（--min-rate
+// 1500/2000/3000）与大范围 UDP 扫描。作业所在的家庭网络里，光猫/交换机被这些
+// 并发会话打满后死机（路由器本身正常但整网断线）。这些规则默认开启，用来在命令
+// 进入工具执行前就拦住同类风暴；它们和其它 [内置] 规则一样可以在拦截规则页停用。
+//
+// 模式导出为包级常量，便于不连数据库做正则单测。
+const (
+	// 宽网段：/0-/16（/24 是常见且温和的粒度，仍然允许）。
+	broadCIDRPattern = `(?i)\b(?:\d{1,3}\.){3}\d{1,3}/(?:[0-9]|1[0-6])\b`
+
+	// 批量 PTR/反向 DNS 脚本：实测会在数分钟内灌入数万条 DNS 查询。
+	bulkPTRPattern = `(?i)\bptr[_-]?scan(?:\.py)?\b`
+
+	// 高并发批量请求：xargs -P ≥16，或线程池 ≥20 线程。
+	highParallelismPattern = `(?i)(?:\bxargs\b[^\n]*\s-P\s*(?:1[6-9]|[2-9]\d|\d{3,})\b|(?:max_workers|workers|threads)\s*=\s*(?:[2-9]\d|\d{3,})|ThreadPoolExecutor\s*\(\s*(?:[2-9]\d|\d{3,})\s*[),])`
+
+	// 高速率端口扫描：nmap --min-rate ≥500 / -T5；masscan|zmap --rate ≥1000。
+	highRateScanPattern = `(?is)\b(nmap|masscan|zmap)\b[^\n]*(?:--min-rate\s*(?:[5-9]\d{2,}|[1-9]\d{3,})|-T\s*5\b|--rate\s*[1-9]\d{3,})`
+
+	// 大范围 UDP 扫描：UDP 会话在消费级网关上存活更久，--top-ports / 全端口最危险。
+	bulkUDPScanPattern = `(?is)\bnmap\b[^\n]*-sU\b[^\n]*(?:--top-ports|-[pP]\s*-|-[pP]\s*1-65535)`
+)
+
+func (d *DB) seedDefaultInterceptRulesV4() error {
+	if v, _, _ := d.GetSetting("intercept_default_rules_v4"); v == "done" {
+		return nil
+	}
+	rules := []struct {
+		name    string
+		pattern string
+		message string
+	}{
+		{
+			name:    "[内置] 大网段批量扫描（/16 及更大）",
+			pattern: broadCIDRPattern,
+			message: "拒绝 /16 及更大网段的批量扫描或反查：数万次并发请求会打满家用光猫/路由器的会话与 DNS 表，实测可导致整网断线。请拆成 /24 或更小网段并分批执行。",
+		},
+		{
+			name:    "[内置] 批量 PTR 反向 DNS 扫描",
+			pattern: bulkPTRPattern,
+			message: "拒绝批量 PTR 反查脚本：实测 128 线程扫 /16 会持续向网关灌入约 120 次/秒的 DNS 查询，足以打挂光猫或路由器。请改用少量目标的单次 dig -x，或分批并限制并发。",
+		},
+		{
+			name:    "[内置] 高并发批量请求（≥16 并发）",
+			pattern: highParallelismPattern,
+			message: "拒绝高并发批量请求（xargs -P ≥16 或线程池 ≥20 线程）：瞬间并发会打满家用网关的 DNS 与会话表。请把并发降到 4-8，或分批执行。",
+		},
+		{
+			name:    "[内置] 高速率端口扫描（--min-rate ≥500 / -T5）",
+			pattern: highRateScanPattern,
+			message: "拒绝高速率扫描（--min-rate ≥500、-T5 或 masscan/zmap --rate ≥1000）：这类速率会耗尽家用光猫/路由器的 NAT 会话表。请用 --max-rate 200 以内或 --min-rate ≤200，并分批扫描。",
+		},
+		{
+			name:    "[内置] 大范围 UDP 扫描",
+			pattern: bulkUDPScanPattern,
+			message: "拒绝大范围 UDP 扫描（-sU --top-ports 或全端口）：UDP 会话在消费级网关上存活更久，容易打满会话表并断网。请只扫明确的少量 UDP 端口（如 -p123）并限制速率。",
+		},
+	}
+	for _, r := range rules {
+		if _, err := d.Exec(`
+INSERT INTO intercept_rules(name, enabled, priority, match_target, match_type, pattern, action, message, timeout_enabled, timeout_seconds, timeout_action)
+SELECT $1, true, 120, 'tool_input', 'regex', $2, 'deny', $3, false, 60, 'deny'
+WHERE NOT EXISTS (SELECT 1 FROM intercept_rules WHERE name = $1)`,
+			r.name, r.pattern, r.message,
+		); err != nil {
+			return fmt.Errorf("rule %q: %w", r.name, err)
+		}
+	}
+	return d.SetSetting("intercept_default_rules_v4", "done")
 }
