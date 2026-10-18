@@ -47,6 +47,8 @@ func TestNetworkStormRulesSeededAndEnforced(t *testing.T) {
 	denied := []string{
 		`{"command":"nohup python3 ptr_scan.py out.jsonl 115.156.0.0/16 > log.txt 2>&1 &"}`,
 		`{"command":"nmap -Pn -sS -p- --open -T4 --min-rate 3000 222.194.190.69 -oA fullport"}`,
+		`{"command":"cd /app/data/tasks/33/i836 && nohup nmap -Pn -n -T4 --min-rate 3000 --max-retries 1 -p- -oG tcp_all.gnmap -oN tcp_all.nmap $(cat ips.txt | tr '\\n' ' ') > nmap_full.log 2>&1 &"}`,
+		`{"command":"nmap --min-rate=3000 -p- 10.0.0.5"}`,
 		`{"command":"nmap -Pn -sU --top-ports 200 --min-rate 1500 202.112.209.92"}`,
 		`{"command":"cat dict.txt | xargs -P 64 -I{} dig +short {}.example.edu.cn A"}`,
 		`{"content":"with ThreadPoolExecutor(max_workers=128) as pool:"}`,

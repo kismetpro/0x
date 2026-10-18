@@ -638,8 +638,10 @@ const (
 	// 高并发批量请求：xargs -P ≥16，或线程池 ≥20 线程。
 	highParallelismPattern = `(?i)(?:\bxargs\b[^\n]*\s-P\s*(?:1[6-9]|[2-9]\d|\d{3,})\b|(?:max_workers|workers|threads)\s*=\s*(?:[2-9]\d|\d{3,})|ThreadPoolExecutor\s*\(\s*(?:[2-9]\d|\d{3,})\s*[),])`
 
-	// 高速率端口扫描：nmap --min-rate ≥500 / -T5；masscan|zmap --rate ≥1000。
-	highRateScanPattern = `(?is)\b(nmap|masscan|zmap)\b[^\n]*(?:--min-rate\s*(?:[5-9]\d{2,}|[1-9]\d{3,})|-T\s*5\b|--rate\s*[1-9]\d{3,})`
+	// 高速率端口扫描：nmap --min-rate/--max-rate ≥500 或 -T5；masscan|zmap --rate ≥1000。
+	// `=?` 兼容 --min-rate=3000 这种写法：nmap 的长选项两种形式都接受，
+	// 只匹配空格形式会给模型（或用户）留下一条无意的绕过路径。
+	highRateScanPattern = `(?is)\b(nmap|masscan|zmap)\b[^\n]*(?:--(?:min|max)-rate\s*=?\s*(?:[5-9]\d{2,}|[1-9]\d{3,})|-T\s*5\b|--rate\s*=?\s*[1-9]\d{3,})`
 
 	// 大范围 UDP 扫描：UDP 会话在消费级网关上存活更久，--top-ports / 全端口最危险。
 	bulkUDPScanPattern = `(?is)\bnmap\b[^\n]*-sU\b[^\n]*(?:--top-ports|-[pP]\s*-|-[pP]\s*1-65535)`
