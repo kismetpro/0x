@@ -54,6 +54,10 @@ func TestNetworkStormRulesSeededAndEnforced(t *testing.T) {
 	for _, in := range denied {
 		if dec, ok := ic.Match("Bash", []byte(in)); !ok || dec.Action != "deny" {
 			t.Fatalf("incident command was not denied: %s (decision=%+v ok=%v)", in, dec, ok)
+		} else if !strings.Contains(dec.Message, "不是禁止") || !strings.Contains(dec.Message, "重试") {
+			// 拒绝理由会原样进入模型的 tool_result：必须说明这是限流而非封禁，
+			// 并给出可调整后重试的方向，否则模型会放弃整条测试思路。
+			t.Fatalf("deny message gives no safe retry path: %q", dec.Message)
 		}
 	}
 	allowed := []string{
@@ -66,7 +70,10 @@ func TestNetworkStormRulesSeededAndEnforced(t *testing.T) {
 			t.Fatalf("normal command was denied by %q: %s", dec.Message, in)
 		}
 	}
-	if !strings.Contains(byName[want[1]].Message, "PTR") {
+	if !strings.Contains(byName[want[1]].Message, "反查") || !strings.Contains(byName[want[1]].Message, "dig -x") {
 		t.Fatalf("deny message should explain the PTR risk: %q", byName[want[1]].Message)
+	}
+	if !strings.Contains(byName[want[3]].Message, "--max-rate 200") {
+		t.Fatalf("rate-limit rule should suggest a safe retry parameter: %q", byName[want[3]].Message)
 	}
 }

@@ -136,8 +136,10 @@ func (g *Guard) applyIntercept(ctx context.Context, ev hook.Event) hook.Result {
 // Audit/history rows keep the raw reason (see Interceptor.Log); only the
 // model-facing tool_result carries this framing.
 func systemBlockMessage(reason string) string {
-	return "【0x 平台管控·非目标防御】此调用被平台拦截。" +
-		"原因：" + reason + "。此操作被禁止。"
+	return "【0x 平台管控·非目标防御】此调用被平台拦截（不是目标侧的 WAF/限流/拒绝）。" +
+		"原因：" + reason + "。" +
+		"若原因给出了安全参数或替代做法，请按它调整后重试同一测试思路；" +
+		"没有给出替代做法时，不要原样重复该调用。"
 }
 
 var reBlocked = regexp.MustCompile(`(?i)\b(403|forbidden|waf|blocked|rate.?limit|429|captcha|denied)\b`)

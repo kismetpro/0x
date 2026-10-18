@@ -657,27 +657,27 @@ func (d *DB) seedDefaultInterceptRulesV4() error {
 		{
 			name:    "[内置] 大网段批量扫描（/16 及更大）",
 			pattern: broadCIDRPattern,
-			message: "拒绝 /16 及更大网段的批量扫描或反查：数万次并发请求会打满家用光猫/路由器的会话与 DNS 表，实测可导致整网断线。请拆成 /24 或更小网段并分批执行。",
+			message: "范围限流（不是禁止侦察）：/16 及更大网段会向网关灌入数万次请求，实测可导致光猫死机、整网断线。请拆成 /24 或更小网段，分批重试同一测试思路。",
 		},
 		{
 			name:    "[内置] 批量 PTR 反向 DNS 扫描",
 			pattern: bulkPTRPattern,
-			message: "拒绝批量 PTR 反查脚本：实测 128 线程扫 /16 会持续向网关灌入约 120 次/秒的 DNS 查询，足以打挂光猫或路由器。请改用少量目标的单次 dig -x，或分批并限制并发。",
+			message: "DNS 限流（不是禁止反查）：实测 128 线程扫 /16 会持续向网关灌入约 120 次/秒的 DNS 查询，足以打挂光猫。请改用少量目标的单次 dig -x，或把并发降到 8 以下分批重试。",
 		},
 		{
 			name:    "[内置] 高并发批量请求（≥16 并发）",
 			pattern: highParallelismPattern,
-			message: "拒绝高并发批量请求（xargs -P ≥16 或线程池 ≥20 线程）：瞬间并发会打满家用网关的 DNS 与会话表。请把并发降到 4-8，或分批执行。",
+			message: "并发限流（不是禁止请求）：xargs -P ≥16 或线程池 ≥20 线程会打满家用网关的 DNS 与会话表。请把并发降到 4-8，分批重试同一测试思路。",
 		},
 		{
 			name:    "[内置] 高速率端口扫描（--min-rate ≥500 / -T5）",
 			pattern: highRateScanPattern,
-			message: "拒绝高速率扫描（--min-rate ≥500、-T5 或 masscan/zmap --rate ≥1000）：这类速率会耗尽家用光猫/路由器的 NAT 会话表。请用 --max-rate 200 以内或 --min-rate ≤200，并分批扫描。",
+			message: "速率限流（不是禁止扫描）：--min-rate ≥500、-T5 或 masscan/zmap --rate ≥1000 会耗尽家用光猫的 NAT 会话表。请改用 --max-rate 200 或 --min-rate ≤200，分批重试同一扫描目标。",
 		},
 		{
 			name:    "[内置] 大范围 UDP 扫描",
 			pattern: bulkUDPScanPattern,
-			message: "拒绝大范围 UDP 扫描（-sU --top-ports 或全端口）：UDP 会话在消费级网关上存活更久，容易打满会话表并断网。请只扫明确的少量 UDP 端口（如 -p123）并限制速率。",
+			message: "UDP 限流（不是禁止探测）：-sU --top-ports 或全端口会让 UDP 会话在消费级网关上长期占用、打满会话表。请只扫明确的少量 UDP 端口（如 -p123）并限制速率后重试。",
 		},
 	}
 	for _, r := range rules {
