@@ -125,6 +125,7 @@ import { getLocalStorageValue, setLocalStorageValue } from "@/lib/local-storage.
 import { type SortDirection, useStoredSortPreference } from "@/lib/sort-preference";
 import type {
   AssetInterceptRuleInput,
+  BatchControlItem,
   ChatAttachment,
   Company,
   DeleteTaskOptions,
@@ -685,6 +686,16 @@ export default function TasksPage() {
     () => selectedTasks.filter((task) => ARCHIVABLE_STATUSES.has(task.status) && !task.queued).map((task) => task.id),
     [selectedTasks],
   );
+  // 全量按钮作用于完整任务列表（不受当前筛选影响），只挑当前可暂停/可继续的任务：
+  // 终态（done/failed/timeout）与正在删除的任务都不会被一键操作波及。
+  const allPausableTaskIDs = React.useMemo(
+    () => tasks.filter((task) => taskControlAction(task.status) === "pause").map((task) => task.id),
+    [tasks],
+  );
+  const allResumableTaskIDs = React.useMemo(
+    () => tasks.filter((task) => taskControlAction(task.status) === "resume").map((task) => task.id),
+    [tasks],
+  );
 
   const archiveSelectedTasks = React.useCallback(async () => {
     if (archivableTaskIDs.length === 0) return;
@@ -706,18 +717,19 @@ export default function TasksPage() {
     load();
   }, [archivableTaskIDs, load]);
 
-  const controlSelectedTasks = React.useCallback(
+  const performTaskControl = React.useCallback(
     async (action: "pause" | "resume", ids: string[]) => {
       if (ids.length === 0 || batchControlling) return;
-      if (ids.length > 100) {
-        toast.error("一次最多控制 100 个任务");
-        return;
-      }
       setBatchControlling(action);
       try {
-        const result = await api.controlTasksBatch(ids, action);
-        const succeeded = result.items.filter((item) => item.ok);
-        const failed = result.items.filter((item) => !item.ok);
+        // 后端单批上限 100；「全部开始/暂停」可能超过这个数，按 100 串行分批。
+        const items: BatchControlItem[] = [];
+        for (let start = 0; start < ids.length; start += 100) {
+          const result = await api.controlTasksBatch(ids.slice(start, start + 100), action);
+          items.push(...result.items);
+        }
+        const succeeded = items.filter((item) => item.ok);
+        const failed = items.filter((item) => !item.ok);
         if (succeeded.length > 0) {
           toast.success(
             action === "pause"
@@ -853,7 +865,7 @@ export default function TasksPage() {
                       size="sm"
                       variant="outline"
                       disabled={batchControlling !== null}
-                      onClick={() => void controlSelectedTasks("pause", pausableTaskIDs)}
+                      onClick={() => void performTaskControl("pause", pausableTaskIDs)}
                     >
                       {batchControlling === "pause" ? (
                         <Spinner data-icon="inline-start" />
@@ -868,7 +880,7 @@ export default function TasksPage() {
                       size="sm"
                       variant="outline"
                       disabled={batchControlling !== null}
-                      onClick={() => void controlSelectedTasks("resume", resumableTaskIDs)}
+                      onClick={() => void performTaskControl("resume", resumableTaskIDs)}
                     >
                       {batchControlling === "resume" ? (
                         <Spinner data-icon="inline-start" />
@@ -899,6 +911,62 @@ export default function TasksPage() {
                   <BulkDeleteTasksDialog ids={[...selectedIds]} onDelete={deleteTasks} />
                 </>
               )}
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={allResumableTaskIDs.length === 0 || batchControlling !== null}
+                onClick={() => void performTaskControl("resume", allResumableTaskIDs)}
+                title={
+                  allResumableTaskIDs.length > 0
+                    ? `继续全部 ${allResumableTaskIDs.length} 个已暂停任务（受并发上限约束，超出的会排队）`
+                    : "当前没有已暂停的任务"
+                }
+              >
+                {batchControlling === "resume" ? (
+                  <Spinner data-icon="inline-start" />
+                ) : (
+                  <PlayIcon data-icon="inline-start" />
+                )}
+                全部开始
+                {allResumableTaskIDs.length > 0 && ` · ${allResumableTaskIDs.length}`}
+              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={allPausableTaskIDs.length === 0 || batchControlling !== null}
+                    title={
+                      allPausableTaskIDs.length > 0
+                        ? `暂停全部 ${allPausableTaskIDs.length} 个运行中/排队任务`
+                        : "当前没有运行中或排队中的任务"
+                    }
+                  >
+                    {batchControlling === "pause" ? (
+                      <Spinner data-icon="inline-start" />
+                    ) : (
+                      <PauseIcon data-icon="inline-start" />
+                    )}
+                    全部暂停
+                    {allPausableTaskIDs.length > 0 && ` · ${allPausableTaskIDs.length}`}
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>暂停全部任务？</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      将暂停 {allPausableTaskIDs.length}{" "}
+                      个运行中或排队中的任务；正在执行的工具调用会被中断，已暂停和已完成的任务不受影响。
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>取消</AlertDialogCancel>
+                    <AlertDialogAction onClick={() => void performTaskControl("pause", allPausableTaskIDs)}>
+                      全部暂停
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
               <ConcurrencySettingsDialog />
               <CategoryManagementSheet
                 categories={categories}
