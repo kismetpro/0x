@@ -29,6 +29,8 @@ func TestNetworkStormRulesSeededAndEnforced(t *testing.T) {
 		"[内置] 高并发批量请求（≥16 并发）",
 		"[内置] 高速率端口扫描（--min-rate ≥500 / -T5）",
 		"[内置] 大范围 UDP 扫描",
+		"[内置] 全端口扫描（-p- / 1-65535）",
+		"[内置] 脚本高并发常量（≥20）",
 	}
 	byName := map[string]db.InterceptRule{}
 	for _, r := range rules {
@@ -49,6 +51,9 @@ func TestNetworkStormRulesSeededAndEnforced(t *testing.T) {
 		`{"command":"nmap -Pn -sS -p- --open -T4 --min-rate 3000 222.194.190.69 -oA fullport"}`,
 		`{"command":"cd /app/data/tasks/33/i836 && nohup nmap -Pn -n -T4 --min-rate 3000 --max-retries 1 -p- -oG tcp_all.gnmap -oN tcp_all.nmap $(cat ips.txt | tr '\\n' ' ') > nmap_full.log 2>&1 &"}`,
 		`{"command":"nmap --min-rate=3000 -p- 10.0.0.5"}`,
+		`{"command":"nmap -Pn -n -T4 --max-rate 200 --open -p- --max-retries 1 --host-timeout 900s -sV 202.112.14.169"}`,
+		`{"command":"nmap -p 1-65535 --max-rate 200 10.0.0.5"}`,
+		`{"content":"CONCURRENCY = 30"}`,
 		`{"command":"nmap -Pn -sU --top-ports 200 --min-rate 1500 202.112.209.92"}`,
 		`{"command":"cat dict.txt | xargs -P 64 -I{} dig +short {}.example.edu.cn A"}`,
 		`{"content":"with ThreadPoolExecutor(max_workers=128) as pool:"}`,
@@ -66,6 +71,8 @@ func TestNetworkStormRulesSeededAndEnforced(t *testing.T) {
 		`{"command":"nmap -sn 202.114.64.0/24"}`,
 		`{"command":"nmap -sU -p123 202.114.64.16"}`,
 		`{"command":"nmap --min-rate 200 -p80,443 202.114.64.16"}`,
+		`{"command":"nmap --top-ports 1000 --max-rate 200 202.114.64.16"}`,
+		`{"command":"nmap -p 1-10000 --max-rate 200 202.114.64.16"}`,
 	}
 	for _, in := range allowed {
 		if dec, ok := ic.Match("Bash", []byte(in)); ok && dec.Action == "deny" {

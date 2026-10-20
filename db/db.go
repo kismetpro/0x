@@ -282,6 +282,9 @@ ON CONFLICT (name) DO NOTHING`,
 	if err := d.seedDefaultInterceptRulesV4(); err != nil {
 		return fmt.Errorf("seed intercept rules v4: %w", err)
 	}
+	if err := d.seedDefaultInterceptRulesV5(); err != nil {
+		return fmt.Errorf("seed intercept rules v5: %w", err)
+	}
 	if err := d.seedDefaultAssetInterceptRules(); err != nil {
 		return fmt.Errorf("seed asset intercept rules: %w", err)
 	}
@@ -693,4 +696,55 @@ WHERE NOT EXISTS (SELECT 1 FROM intercept_rules WHERE name = $1)`,
 		}
 	}
 	return d.SetSetting("intercept_default_rules_v4", "done")
+}
+
+// seedDefaultInterceptRulesV5 补上两处 v4 漏网的放大器。
+//
+// 第二次断网（2026-10-19 11:16 CST）：v4 的速率规则生效后，模型改用
+// `--max-rate 200`，但同一时段并发启动了 6-8 个**全端口 `-p-` 扫描**
+// （10:53/10:59/11:01×3/11:02/11:06/11:14×2）。单进程 200 pps 合计仍有
+// 1200-1600 pps，且每个要跑十几分钟——会话表被持续占用，光猫再次卡死。
+// 同时 `brute.py` 用 `CONCURRENCY = 30` 跑 DNS 爆破，v4 只匹配
+// max_workers/workers/threads，没匹配到这种常量写法。
+//
+// 两条规则都只限制「规模」，给出可执行的替代方案，模型收到理由后可调整重试。
+const (
+	// 全端口：-p-、-p 1-65535、-p1-65535、-p 0-65535，以及任何以 65535 结尾的端口范围。
+	fullPortScanPattern = `(?is)\b(?:nmap|masscan|zmap)\b[^\n]*(?:\s-p-(?:\s|"|$)|\s-p\s*=?\s*[0-9]{1,5}\s*-\s*65535(?:\s|,|"|$)|\s-p[0-9]{1,5}-65535\b)`
+
+	// 脚本里的并发常量：CONCURRENCY = 30 / parallelism=64 / pool_size = 20 等。
+	scriptConcurrencyPattern = `(?i)\b(?:concurrency|parallelism|max_parallel(?:ism)?|parallel_workers|pool_size)\s*=\s*(?:[2-9]\d|\d{3,})`
+)
+
+func (d *DB) seedDefaultInterceptRulesV5() error {
+	if v, _, _ := d.GetSetting("intercept_default_rules_v5"); v == "done" {
+		return nil
+	}
+	rules := []struct {
+		name    string
+		pattern string
+		message string
+	}{
+		{
+			name:    "[内置] 全端口扫描（-p- / 1-65535）",
+			pattern: fullPortScanPattern,
+			message: "范围限流（不是禁止扫描）：全端口扫描会持续十几分钟占用家用光猫的会话表，多个任务并发时必然断网。请改用 --top-ports 1000；确需全端口时拆成 -p1-10000、-p10001-20000 等分段**串行**执行（同一时间只跑一个），加 --max-rate 100 后分段重试同一扫描目标。",
+		},
+		{
+			name:    "[内置] 脚本高并发常量（≥20）",
+			pattern: scriptConcurrencyPattern,
+			message: "并发限流（不是禁止请求）：脚本里把 CONCURRENCY/parallelism/pool_size 设为 ≥20 会打满家用网关的 DNS 与会话表。请把并发改成 4-8 后分批重试，或改用串行处理。",
+		},
+	}
+	for _, r := range rules {
+		if _, err := d.Exec(`
+INSERT INTO intercept_rules(name, enabled, priority, match_target, match_type, pattern, action, message, timeout_enabled, timeout_seconds, timeout_action)
+SELECT $1, true, 125, 'tool_input', 'regex', $2, 'deny', $3, false, 60, 'deny'
+WHERE NOT EXISTS (SELECT 1 FROM intercept_rules WHERE name = $1)`,
+			r.name, r.pattern, r.message,
+		); err != nil {
+			return fmt.Errorf("rule %q: %w", r.name, err)
+		}
+	}
+	return d.SetSetting("intercept_default_rules_v5", "done")
 }

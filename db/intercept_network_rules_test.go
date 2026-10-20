@@ -30,6 +30,16 @@ func TestNetworkStormRulesMatchIncidentCommands(t *testing.T) {
 		{highRateScanPattern, `masscan -p1-65535 --rate 10000 10.0.0.0/24`},
 		{bulkUDPScanPattern, `nmap -Pn -sU --top-ports 200 --min-rate 1500 -T4 -oA udp_top200 202.112.209.92`},
 		{bulkUDPScanPattern, `nmap -sU -p- --open 10.0.0.5`},
+		// 第二次断网（10-19 11:16）漏网的全端口扫描：限速 200 但并发 6-8 个。
+		{fullPortScanPattern, `nmap -Pn -n -T4 --max-rate 200 --open -p- --max-retries 1 --host-timeout 900s -sV 202.112.14.169`},
+		{fullPortScanPattern, `nmap -sS -Pn -p- --min-rate 3000 --open 10.0.0.5`},
+		{fullPortScanPattern, `nmap -p 1-65535 10.0.0.5`},
+		{fullPortScanPattern, `nmap -p1-65535 10.0.0.5`},
+		{fullPortScanPattern, `nmap -p 1025-65535 10.0.0.5`},
+		{fullPortScanPattern, `masscan -p1-65535 --rate 100 10.0.0.5`},
+		{scriptConcurrencyPattern, `CONCURRENCY = 30`},
+		{scriptConcurrencyPattern, `parallelism=64`},
+		{scriptConcurrencyPattern, `pool_size = 100`},
 	}
 	for _, tc := range deny {
 		re := regexp.MustCompile(tc.pattern)
@@ -56,6 +66,12 @@ func TestNetworkStormRulesMatchIncidentCommands(t *testing.T) {
 		{highRateScanPattern, `masscan -p80 --rate 100 10.0.0.5`},
 		{bulkUDPScanPattern, `nmap -sU -p123 10.0.0.5`},
 		{bulkUDPScanPattern, `nmap -sU -p 53,123 --max-rate 50 10.0.0.5`},
+		{fullPortScanPattern, `nmap -p 1-1024 10.0.0.5`},
+		{fullPortScanPattern, `nmap --top-ports 1000 10.0.0.5`},
+		{fullPortScanPattern, `nmap -p 80,443,8080 10.0.0.5`},
+		{fullPortScanPattern, `nmap -p 1-10000 10.0.0.5`},
+		{scriptConcurrencyPattern, `CONCURRENCY = 8`},
+		{scriptConcurrencyPattern, `max_workers = 8`},
 	}
 	for _, tc := range allow {
 		re := regexp.MustCompile(tc.pattern)
