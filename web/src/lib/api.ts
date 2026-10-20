@@ -69,6 +69,8 @@ import type {
   MCPTool,
   MissingSkill,
   ModelTokenStat,
+  NetworkHistory,
+  NetworkStatus,
   NotificationChannel,
   NotificationDelivery,
   NotificationFilter,
@@ -438,6 +440,9 @@ export const api = {
   taskCoverageGraph: (id: string) => get<CoverageGraphData>(`/tasks/${id}/coverage-graph`),
   // 全局 llm_usage 聚合（仪表盘新版 token 视图）：按 profile 总量 + 按天分桶。
   usageStats: (days = 365) => get<UsageStats>(`/tokens/usage?days=${days}`),
+  // 网络实时监测：最新采样 / 最近断网 + 分钟级历史与断网区间。
+  networkStatus: () => get<NetworkStatus>("/network/status"),
+  networkHistory: (hours = 24) => get<NetworkHistory>(`/network/history?hours=${hours}`),
   // ---- 目标管理（总览）----
   // 本任务全部目标（text/vulnclass/state）。
   taskGoals: (id: string) =>

@@ -865,10 +865,84 @@ export interface ProfileDayUsage {
   cache_read_tokens: number;
 }
 
+// One (profile, UTC hour) token bucket — powers today's hourly bar chart.
+export interface ProfileHourUsage {
+  profile_name: string;
+  hour: string; // RFC3339 (UTC)
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+}
+
 // Response of GET /api/tokens/usage — the dashboard's "new" (llm_usage) token view.
 export interface UsageStats {
   by_profile: ProfileUsage[];
   daily: ProfileDayUsage[];
+  hourly: ProfileHourUsage[];
+}
+
+// ── 网络实时监测 ─────────────────────────────────────────────────────────────
+export type NetworkState = "online" | "degraded" | "offline";
+
+export interface NetworkCheckDetail {
+  ok: boolean;
+  ms: number;
+  err?: string;
+}
+
+export interface NetworkSampleDetail {
+  dns?: NetworkCheckDetail;
+  tcp?: NetworkCheckDetail;
+  http?: NetworkCheckDetail;
+  icmp?: NetworkCheckDetail;
+  gateway?: NetworkCheckDetail;
+  external_ok?: number;
+}
+
+export interface NetworkSample {
+  ts: string;
+  state: NetworkState;
+  dns_ok: boolean;
+  tcp_ok: boolean;
+  http_ok: boolean;
+  icmp_ok: boolean;
+  gateway_ok: boolean;
+  latency_ms: number;
+  detail?: NetworkSampleDetail;
+}
+
+export interface NetworkOutage {
+  down_at: string;
+  up_at?: string;
+  seconds: number;
+  ongoing: boolean;
+}
+
+export interface NetworkMonitorInfo {
+  interval_seconds: number;
+  retention_days: number;
+}
+
+export interface NetworkStatus {
+  sample: NetworkSample | null;
+  since?: string;
+  outages: NetworkOutage[];
+  last_outage?: NetworkOutage | null;
+  monitor: NetworkMonitorInfo;
+}
+
+export interface NetworkHistoryBucket {
+  ts: string;
+  state: NetworkState;
+  samples: number;
+  latency_ms: number;
+}
+
+export interface NetworkHistory {
+  buckets: NetworkHistoryBucket[];
+  outages: NetworkOutage[];
+  hours: number;
+  monitor: NetworkMonitorInfo;
 }
 
 // Per-model token usage for one task (GET /api/llm/records/by-model), from the

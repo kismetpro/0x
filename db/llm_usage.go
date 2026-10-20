@@ -45,6 +45,7 @@ CREATE TABLE IF NOT EXISTS llm_usage (
 CREATE INDEX IF NOT EXISTS idx_llm_usage_task  ON llm_usage(task_id);
 CREATE INDEX IF NOT EXISTS idx_llm_usage_model ON llm_usage(task_id, model);
 CREATE INDEX IF NOT EXISTS idx_llm_usage_exp   ON llm_usage(exploration_id);
+CREATE INDEX IF NOT EXISTS idx_llm_usage_ts    ON llm_usage(ts DESC);
 `
 
 // EnsureLLMUsageTable creates the llm_usage metering table if it does not exist.
@@ -257,6 +258,45 @@ ORDER BY day`, days)
 		return out[i].ProfileName < out[j].ProfileName
 	})
 	return out, nil
+}
+
+// ProfileHourUsage is one (profile, UTC hour) bucket. The dashboard renders
+// today's usage as 24 hourly bars from this feed.
+type ProfileHourUsage struct {
+	ProfileName     string    `json:"profile_name"`
+	Hour            time.Time `json:"hour"`
+	InputTokens     int       `json:"input_tokens"`
+	OutputTokens    int       `json:"output_tokens"`
+	CacheReadTokens int       `json:"cache_read_tokens"`
+}
+
+// UsageHourly returns per-hour token buckets for the last hours from the
+// always-on llm_usage ledger.
+func (d *DB) UsageHourly(hours int) ([]ProfileHourUsage, error) {
+	if hours <= 0 {
+		hours = 48
+	}
+	rows, err := d.Query(`
+SELECT COALESCE(profile_name,'') AS profile_name,
+       date_trunc('hour', ts, 'UTC') AS hour,
+       COALESCE(SUM(input_tokens),0), COALESCE(SUM(output_tokens),0), COALESCE(SUM(cache_read),0)
+FROM llm_usage
+WHERE ts >= now() - ($1 * interval '1 hour') AND ts <= now()
+GROUP BY profile_name, hour
+ORDER BY hour`, hours)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []ProfileHourUsage{}
+	for rows.Next() {
+		var p ProfileHourUsage
+		if err := rows.Scan(&p.ProfileName, &p.Hour, &p.InputTokens, &p.OutputTokens, &p.CacheReadTokens); err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
 }
 
 // JudgeDayUsage is one UTC-day token bucket for the intercept fallback judge,

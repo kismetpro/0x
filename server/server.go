@@ -296,6 +296,7 @@ func (s *Server) restoreTaskRuntimes() {
 		}
 	}
 	go newScheduler(s).Run(s.ctx)
+	go newNetworkMonitor(m.pg).Run(s.ctx)
 	// Restore every task that had already been admitted before shutdown. Starting
 	// only the active UI task left other non-queued tasks counted as concurrency
 	// occupants without live loops, which could permanently block the persistent
@@ -854,6 +855,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/tokens/daily", s.tokenDailyStats)
 	mux.HandleFunc("GET /api/tokens/conversations", s.conversationTokens)
 	mux.HandleFunc("GET /api/tokens/usage", s.pgUsageStats) // 全局 llm_usage 聚合（仪表盘新版视图）
+	mux.HandleFunc("GET /api/network/status", s.networkStatus)
+	mux.HandleFunc("GET /api/network/history", s.networkHistory)
 
 	mux.HandleFunc("GET /api/audit", s.getAudit)
 	mux.HandleFunc("POST /api/gc", s.gc)

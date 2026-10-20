@@ -12,9 +12,11 @@ import {
   NetworkIcon,
   ShieldCheckIcon,
   TargetIcon,
+  WifiIcon,
+  WifiOffIcon,
   ZapIcon,
 } from "lucide-react";
-import { Bar, BarChart, CartesianGrid, Tooltip as RechartsTooltip, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
 
 import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
@@ -29,6 +31,9 @@ import type {
   InterceptPending,
   LLMProfile,
   MCPServer,
+  NetworkHistory,
+  NetworkState,
+  NetworkStatus,
   Settings,
   SkillItem,
   Stats,
@@ -42,7 +47,7 @@ import { cn } from "@/lib/utils";
 // ── chart constants ───────────────────────────────────────────────────────────
 
 const dailyTrendConfig = {
-  input: { label: "输入", color: "hsl(217 91% 60%)" },
+  input: { label: "输入(未命中)", color: "hsl(217 91% 60%)" },
   output: { label: "输出", color: "hsl(263 70% 60%)" },
   cacheRead: { label: "缓存读", color: "hsl(160 60% 45%)" },
 } satisfies ChartConfig;
@@ -52,7 +57,7 @@ const dailyTrendConfig = {
 function fmtRel(ts?: string | number): string {
   if (!ts) return "—";
   const ms = Date.now() - (typeof ts === "number" ? ts * 1000 : Date.parse(ts as string));
-  const s = Math.floor(ms / 1000);
+  const s = Math.max(0, Math.floor(ms / 1000));
   if (s < 60) return `${s}s 前`;
   const m = Math.floor(s / 60);
   if (m < 60) return `${m}m 前`;
@@ -65,6 +70,36 @@ function fmtTokens(n: number): string {
   if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
   if (n >= 1000) return (n / 1000).toFixed(1) + "k";
   return String(n);
+}
+
+function parseTime(ts?: string | number): Date | null {
+  if (ts === undefined || ts === null || ts === "") return null;
+  const d = new Date(typeof ts === "number" && Math.abs(ts) < 1_000_000_000_000 ? ts * 1000 : ts);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function fmtClock(ts?: string | number): string {
+  const d = parseTime(ts);
+  if (!d) return "—";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+function fmtClockShort(ts?: string | number): string {
+  const d = parseTime(ts);
+  if (!d) return "—";
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+function fmtDuration(seconds: number): string {
+  const total = Math.max(0, Math.round(seconds));
+  if (total < 60) return `${total} 秒`;
+  const minutes = Math.floor(total / 60);
+  if (minutes < 60) return `${minutes} 分 ${total % 60} 秒`;
+  const hours = Math.floor(minutes / 60);
+  const rest = minutes % 60;
+  if (hours < 24) return `${hours} 小时 ${rest} 分`;
+  return `${Math.floor(hours / 24)} 天 ${hours % 24} 小时`;
 }
 
 const ASSET_TYPE_LABELS: Record<string, string> = {
@@ -97,6 +132,46 @@ function statusBg(code: number): string {
   if (code < 400) return "bg-blue-400";
   if (code < 500) return "bg-amber-400";
   return "bg-red-400";
+}
+
+function networkMetaFor(state: NetworkState | "waiting" | "stale") {
+  switch (state) {
+    case "online":
+      return {
+        label: "网络在线",
+        icon: WifiIcon,
+        badge: "border-emerald-500/30 bg-emerald-500/10 text-emerald-400",
+        dot: "bg-emerald-400",
+      };
+    case "degraded":
+      return {
+        label: "网络波动",
+        icon: ActivityIcon,
+        badge: "border-amber-500/30 bg-amber-500/10 text-amber-400",
+        dot: "bg-amber-400",
+      };
+    case "offline":
+      return {
+        label: "网络中断",
+        icon: WifiOffIcon,
+        badge: "border-red-500/30 bg-red-500/10 text-red-400",
+        dot: "bg-red-500",
+      };
+    case "stale":
+      return {
+        label: "采样超时",
+        icon: WifiOffIcon,
+        badge: "border-red-500/30 bg-red-500/10 text-red-400",
+        dot: "bg-red-500",
+      };
+    default:
+      return {
+        label: "等待采样",
+        icon: ClockIcon,
+        badge: "border-muted-foreground/20 bg-muted/30 text-muted-foreground",
+        dot: "bg-muted-foreground/40",
+      };
+  }
 }
 
 // ── sub-components ────────────────────────────────────────────────────────────
@@ -136,6 +211,9 @@ export default function DashboardPage() {
   const [pending, setPending] = React.useState<InterceptPending[]>([]);
   const [activity, setActivity] = React.useState<Activity[]>([]);
   const [usageStats, setUsageStats] = React.useState<UsageStats | null>(null);
+  const [networkStatus, setNetworkStatus] = React.useState<NetworkStatus | null>(null);
+  const [networkHistory, setNetworkHistory] = React.useState<NetworkHistory | null>(null);
+  const [networkNow, setNetworkNow] = React.useState<number | null>(null);
   const [assetCounts, setAssetCounts] = React.useState<Record<string, number>>({});
   const [traffic, setTraffic] = React.useState<TrafficExchange[]>([]);
   const [agents, setAgents] = React.useState<Agent[]>([]);
@@ -210,12 +288,37 @@ export default function DashboardPage() {
     };
   }, []);
 
-  // slow poll: traffic, assets, system-static (every 15s)
+  // Network probing is independent: a slow probe/history query must not hold
+  // back findings, approvals, or activity in the five-second dashboard batch.
+  React.useEffect(() => {
+    let alive = true;
+    let loading = false;
+    const load = async () => {
+      if (loading) return;
+      loading = true;
+      try {
+        const status = await api.networkStatus();
+        if (alive) setNetworkStatus(status);
+      } catch {
+        /* keep the last sample; the next poll retries */
+      } finally {
+        loading = false;
+      }
+    };
+    void load();
+    const timer = setInterval(load, 10000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, []);
+
+  // slow poll: traffic, assets, system-static, network history (every 15s)
   React.useEffect(() => {
     let alive = true;
     const load = async () => {
       try {
-        const [traf, counts, agentList, mcpList, skillList, toolList, profileList, usage] = await Promise.all([
+        const [traf, counts, agentList, mcpList, skillList, toolList, profileList, netHistory] = await Promise.all([
           api.traffic(0, 50),
           api.assetCounts(),
           api.agents(),
@@ -223,7 +326,7 @@ export default function DashboardPage() {
           api.skills(),
           api.tools(),
           api.llmProfiles(),
-          api.usageStats(365),
+          api.networkHistory(24),
         ]);
         if (!alive) return;
         setTraffic(traf.exchanges ?? []);
@@ -233,7 +336,8 @@ export default function DashboardPage() {
         setSkills(skillList);
         setTools(toolList);
         setLLMProfiles(profileList);
-        setUsageStats(usage);
+        setNetworkHistory(netHistory);
+        setNetworkNow(Date.now());
       } catch {
         /* transient errors */
       }
@@ -243,6 +347,32 @@ export default function DashboardPage() {
     return () => {
       alive = false;
       clearInterval(t);
+    };
+  }, []);
+
+  // The llm_usage aggregates are much heavier than the other cards and token
+  // spend does not need five-second freshness. Polling them every 30 seconds
+  // keeps the dashboard responsive while charts still update continuously.
+  React.useEffect(() => {
+    let alive = true;
+    let loading = false;
+    const load = async () => {
+      if (loading) return;
+      loading = true;
+      try {
+        const usage = await api.usageStats(365);
+        if (alive) setUsageStats(usage);
+      } catch {
+        /* keep the last chart; retry later */
+      } finally {
+        loading = false;
+      }
+    };
+    void load();
+    const timer = setInterval(load, 30000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
     };
   }, []);
 
@@ -324,8 +454,8 @@ export default function DashboardPage() {
   // 只覆盖账本启用之后的调用，历史 activity 统计已移除。
   // selected profile tab: "all" = 全部; number = specific profile id
   const [tokenTab, setTokenTab] = React.useState<number | null | "all">("all");
-  // day range for the daily bar chart
-  const [tokenDays, setTokenDays] = React.useState<7 | 30 | 90 | 180 | 365>(30);
+  // 时间范围：默认「今天」（小时级柱状图）；其余选项为日级。
+  const [tokenRange, setTokenRange] = React.useState<"today" | 7 | 30 | 90 | 180 | 365>("today");
 
   // profile 名 → id，用于把 llm_usage 的 profile_name 映射到现有 profile 分栏。
   const profileIdByName = React.useMemo(() => {
@@ -376,24 +506,128 @@ export default function DashboardPage() {
       : { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, taskCount: 0 };
   }, [tokenTab, tokenByProfile]);
 
-  // 每日消耗：来自 llm_usage 的真实每日消耗（ts 是实际调用时刻）。
-  const dailyTokenData = React.useMemo(() => {
+  // 今天：24 个小时桶（本地时区），默认视图。
+  const hourlyTokenData = React.useMemo(() => {
+    const today = new Date().toDateString();
+    const buckets = Array.from({ length: 24 }, (_, h) => ({
+      date: `${String(h).padStart(2, "0")}:00`,
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+    }));
+    for (const row of usageStats?.hourly ?? []) {
+      const d = new Date(row.hour);
+      if (Number.isNaN(d.getTime()) || d.toDateString() !== today) continue;
+      if (tokenTab !== "all" && (profileIdByName.get(row.profile_name) ?? defaultProfileId) !== tokenTab) continue;
+      const b = buckets[d.getHours()];
+      const cached = Math.min(row.input_tokens, row.cache_read_tokens);
+      b.input += row.input_tokens - cached;
+      b.output += row.output_tokens;
+      b.cacheRead += cached;
+    }
+    return buckets;
+  }, [usageStats, tokenTab, profileIdByName, defaultProfileId]);
+
+  // 日级范围：来自 llm_usage 的真实每日消耗（ts 是实际调用时刻）。
+  const dailyRangeData = React.useMemo(() => {
+    const days = tokenRange === "today" ? 1 : tokenRange;
     const now = new Date();
-    now.setDate(now.getDate() - tokenDays);
+    now.setDate(now.getDate() - days);
     const cutoff = now.toISOString().slice(0, 10);
     const m = new Map<string, { input: number; output: number; cacheRead: number }>();
     for (const d of usageStats?.daily ?? []) {
       if (d.date < cutoff) continue;
       if (tokenTab !== "all" && (profileIdByName.get(d.profile_name) ?? defaultProfileId) !== tokenTab) continue;
       const prev = m.get(d.date) ?? { input: 0, output: 0, cacheRead: 0 };
+      const cached = Math.min(d.input_tokens, d.cache_read_tokens);
       m.set(d.date, {
-        input: prev.input + d.input_tokens,
+        input: prev.input + d.input_tokens - cached,
         output: prev.output + d.output_tokens,
-        cacheRead: prev.cacheRead + d.cache_read_tokens,
+        cacheRead: prev.cacheRead + cached,
       });
     }
     return [...m.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([date, v]) => ({ date: date.slice(5), ...v }));
-  }, [usageStats, tokenDays, tokenTab, profileIdByName, defaultProfileId]);
+  }, [usageStats, tokenRange, tokenTab, profileIdByName, defaultProfileId]);
+
+  const dailyTokenData = tokenRange === "today" ? hourlyTokenData : dailyRangeData;
+
+  // 24h 网络时间条：把后端的分钟桶合并成 5 分钟一格。断网优先于波动，
+  // 波动优先于在线，避免短暂故障被同一格里的成功采样掩盖。
+  const networkBars = React.useMemo(() => {
+    type TimelineState = NetworkHistory["buckets"][number]["state"] | "nodata";
+    if (networkNow === null) return [];
+    const bucketMs = 5 * 60 * 1000;
+    const count = 24 * 12;
+    const end = Math.floor(networkNow / bucketMs) * bucketMs;
+    const start = end - (count - 1) * bucketMs;
+    const bars = Array.from({ length: count }, (_, i) => ({
+      ts: start + i * bucketMs,
+      state: "nodata" as TimelineState,
+      samples: 0,
+      latencyTotal: 0,
+      latency: 0,
+    }));
+    const rank: Record<TimelineState, number> = { nodata: 0, online: 1, degraded: 2, offline: 3 };
+    for (const bucket of networkHistory?.buckets ?? []) {
+      const ts = Date.parse(bucket.ts);
+      if (Number.isNaN(ts)) continue;
+      const idx = Math.floor((ts - start) / bucketMs);
+      if (idx < 0 || idx >= count) continue;
+      const bar = bars[idx];
+      if (rank[bucket.state] > rank[bar.state]) bar.state = bucket.state;
+      bar.samples += bucket.samples;
+      bar.latencyTotal += Math.max(0, bucket.latency_ms);
+    }
+    return bars.map(({ latencyTotal, ...bar }) => ({
+      ...bar,
+      latency: bar.samples > 0 ? Math.round(latencyTotal / bar.samples) : 0,
+    }));
+  }, [networkHistory, networkNow]);
+
+  const networkSample = networkStatus?.sample ?? null;
+  const networkInterval = networkStatus?.monitor?.interval_seconds ?? 10;
+  const networkSampleTime = parseTime(networkSample?.ts);
+  const networkSampleAge = networkSampleTime
+    ? Math.max(0, Math.floor((Date.now() - networkSampleTime.getTime()) / 1000))
+    : null;
+  const networkStale = networkSampleAge !== null && networkSampleAge > Math.max(30, networkInterval * 3);
+  let networkVisualState: NetworkState | "waiting" | "stale" = "waiting";
+  if (networkSample) networkVisualState = networkStale ? "stale" : networkSample.state;
+  const networkMeta = networkMetaFor(networkVisualState);
+  const NetworkStatusIcon = networkMeta.icon;
+  const networkChecks = [
+    {
+      label: "DNS",
+      ok: networkSample ? (networkSample.detail?.dns?.ok ?? networkSample.dns_ok) : null,
+      ms: networkSample?.detail?.dns?.ms,
+      err: networkSample?.detail?.dns?.err,
+    },
+    {
+      label: "TCP",
+      ok: networkSample ? (networkSample.detail?.tcp?.ok ?? networkSample.tcp_ok) : null,
+      ms: networkSample?.detail?.tcp?.ms,
+      err: networkSample?.detail?.tcp?.err,
+    },
+    {
+      label: "HTTP",
+      ok: networkSample ? (networkSample.detail?.http?.ok ?? networkSample.http_ok) : null,
+      ms: networkSample?.detail?.http?.ms,
+      err: networkSample?.detail?.http?.err,
+    },
+    {
+      label: "ICMP",
+      ok: networkSample ? (networkSample.detail?.icmp?.ok ?? networkSample.icmp_ok) : null,
+      ms: networkSample?.detail?.icmp?.ms,
+      err: networkSample?.detail?.icmp?.err,
+    },
+    {
+      label: "网关",
+      ok: networkSample ? (networkSample.detail?.gateway?.ok ?? networkSample.gateway_ok) : null,
+      ms: networkSample?.detail?.gateway?.ms,
+      err: networkSample?.detail?.gateway?.err,
+    },
+  ];
+  const recentNetworkOutages = [...(networkHistory?.outages ?? [])].slice(-3).reverse();
 
   // activity kind label
   function kindLabel(a: Activity): string {
@@ -582,7 +816,7 @@ export default function DashboardPage() {
           <div className="flex flex-col gap-4">
             {/* Total */}
             <div>
-              <div className="text-[10px] text-muted-foreground">合计 (输入+输出)</div>
+              <div className="text-[10px] text-muted-foreground">累计 (输入+输出)</div>
               <div className="mt-0.5 text-3xl font-bold tabular-nums tracking-tight">
                 {fmtTokens(displayedTokens.input + displayedTokens.output) || "—"}
               </div>
@@ -668,20 +902,21 @@ export default function DashboardPage() {
               <div className="flex gap-0.5 rounded-md border bg-muted/30 p-0.5">
                 {(
                   [
-                    { days: 7, label: "7天" },
-                    { days: 30, label: "30天" },
-                    { days: 90, label: "3月" },
-                    { days: 180, label: "6月" },
-                    { days: 365, label: "一年" },
+                    { value: "today", label: "今天" },
+                    { value: 7, label: "7天" },
+                    { value: 30, label: "30天" },
+                    { value: 90, label: "3月" },
+                    { value: 180, label: "6月" },
+                    { value: 365, label: "一年" },
                   ] as const
-                ).map(({ days, label }) => (
+                ).map(({ value, label }) => (
                   <button
                     type="button"
-                    key={days}
-                    onClick={() => setTokenDays(days)}
+                    key={value}
+                    onClick={() => setTokenRange(value)}
                     className={cn(
                       "rounded px-2.5 py-0.5 text-[9px] font-medium transition-colors",
-                      tokenDays === days
+                      tokenRange === value
                         ? "bg-background text-foreground shadow-sm"
                         : "text-muted-foreground hover:text-foreground",
                     )}
@@ -709,7 +944,7 @@ export default function DashboardPage() {
                     axisLine={false}
                     tick={{ fontSize: 10 }}
                     tickMargin={6}
-                    interval="preserveStartEnd"
+                    interval={tokenRange === "today" ? 2 : "preserveStartEnd"}
                   />
                   <YAxis
                     tickFormatter={(v) => fmtTokens(Number(v))}
@@ -745,7 +980,199 @@ export default function DashboardPage() {
         </div>
       </Card>
 
-      {/* ── Row 3: 活动流 | 发现 ── */}
+      {/* ── Row 3: 网络实时监测 ── */}
+      <Card className="overflow-hidden p-0">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex items-center gap-1.5 text-xs font-semibold">
+              <WifiIcon className="size-3.5 text-muted-foreground" />
+              网络实时监测
+            </div>
+            <Badge variant="outline" className={cn("gap-1.5 px-2 py-0 text-[10px]", networkMeta.badge)}>
+              <span
+                className={cn(
+                  "size-1.5 rounded-full",
+                  networkMeta.dot,
+                  networkVisualState === "online" && "animate-pulse",
+                )}
+              />
+              {networkMeta.label}
+            </Badge>
+            <span className="text-[10px] text-muted-foreground">
+              每 {networkInterval} 秒采样 · 保留 {networkStatus?.monitor?.retention_days ?? 30} 天 · 本地时间
+            </span>
+          </div>
+          <div className="flex items-center gap-1.5 text-[10px] tabular-nums text-muted-foreground">
+            {networkStatus ? (
+              networkStatus.last_outage ? (
+                networkStatus.last_outage.ongoing ? (
+                  <>
+                    <span className="size-1.5 rounded-full bg-red-500" />
+                    <span className="text-red-400">当前断网：自 {fmtClock(networkStatus.last_outage.down_at)} 起</span>
+                    <span>· 已持续 {fmtDuration(networkStatus.last_outage.seconds)}</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="size-1.5 rounded-full bg-muted-foreground/40" />
+                    <span>最近断网：{fmtClock(networkStatus.last_outage.down_at)}</span>
+                    <span>→ {fmtClock(networkStatus.last_outage.up_at)}</span>
+                    <span>（{fmtDuration(networkStatus.last_outage.seconds)}）</span>
+                  </>
+                )
+              ) : (
+                <span>最近 7 天无断网记录</span>
+              )
+            ) : (
+              <span>正在读取断网记录…</span>
+            )}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 gap-4 p-4 lg:grid-cols-[290px_1fr]">
+          <div className="flex flex-col gap-2.5">
+            <div className={cn("rounded-xl border p-3", networkMeta.badge)}>
+              <div className="flex items-center gap-3">
+                <div className="flex size-9 shrink-0 items-center justify-center rounded-lg border border-current/15 bg-background/30">
+                  <NetworkStatusIcon className="size-4" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-semibold tracking-tight">{networkMeta.label}</div>
+                  <div className="mt-0.5 truncate text-[10px] opacity-80">
+                    {networkSample
+                      ? `最新采样 ${fmtClock(networkSample.ts)} · ${fmtRel(networkSample.ts)}`
+                      : "等待后台首轮探测结果"}
+                  </div>
+                </div>
+                <div className="text-right">
+                  <div className="font-mono text-lg font-semibold tabular-nums">
+                    {networkSample ? networkSample.latency_ms : "—"}
+                  </div>
+                  <div className="text-[9px] opacity-70">峰值 ms</div>
+                </div>
+              </div>
+              {networkStale && (
+                <div className="mt-2 rounded-md border border-red-500/20 bg-red-500/10 px-2 py-1 text-[10px] text-red-400">
+                  最新采样已超过 {fmtDuration(networkSampleAge ?? 0)}，监测循环可能已停止
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-2">
+              {networkChecks.map((check) => (
+                <div
+                  key={check.label}
+                  title={check.err || `${check.label} ${check.ok === null ? "等待采样" : check.ok ? "通过" : "失败"}`}
+                  className="flex min-w-0 items-center gap-1.5 rounded-md border bg-muted/15 px-2 py-1.5 text-[10px]"
+                >
+                  <span
+                    className={cn(
+                      "size-1.5 shrink-0 rounded-full",
+                      check.ok === null ? "bg-muted-foreground/30" : check.ok ? "bg-emerald-400" : "bg-red-500",
+                    )}
+                  />
+                  <span className="min-w-0 flex-1 truncate text-muted-foreground">{check.label}</span>
+                  <span
+                    className={cn(
+                      "shrink-0 font-mono tabular-nums",
+                      check.ok === null ? "text-muted-foreground/60" : check.ok ? "text-emerald-400" : "text-red-400",
+                    )}
+                  >
+                    {check.ok === null ? "—" : check.ok ? `${check.ms ?? 0}ms` : "失败"}
+                  </span>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex items-center justify-between px-0.5 text-[9px] text-muted-foreground">
+              <span>外部状态由 DNS / TCP / HTTP 判定</span>
+              <span>{networkSample?.detail?.external_ok ?? 0}/3 通过</span>
+            </div>
+          </div>
+
+          <div className="min-w-0">
+            <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+              <div className="text-[10px] font-medium text-muted-foreground">最近 24 小时连接状态</div>
+              <div className="flex flex-wrap items-center gap-2.5 text-[9px] text-muted-foreground">
+                <span className="flex items-center gap-1">
+                  <span className="size-2 rounded-sm bg-emerald-500/80" />
+                  在线
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="size-2 rounded-sm bg-amber-400/80" />
+                  波动
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="size-2 rounded-sm bg-red-500" />
+                  断网
+                </span>
+                <span className="flex items-center gap-1">
+                  <span className="size-2 rounded-sm bg-muted-foreground/20" />
+                  无采样
+                </span>
+              </div>
+            </div>
+            <div
+              className="flex h-9 w-full items-stretch gap-px overflow-hidden rounded-md border bg-muted/10 p-1"
+              role="img"
+              aria-label="最近 24 小时网络状态，每格 5 分钟"
+            >
+              {networkBars.map((bar) => (
+                <span
+                  key={bar.ts}
+                  title={`${fmtClock(bar.ts)} - ${fmtClockShort(bar.ts + 5 * 60 * 1000)} · ${
+                    bar.state === "nodata"
+                      ? "无采样"
+                      : bar.state === "online"
+                        ? "在线"
+                        : bar.state === "degraded"
+                          ? "波动"
+                          : "断网"
+                  }${bar.samples > 0 ? ` · ${bar.samples} 个采样 · ${bar.latency}ms` : ""}`}
+                  className={cn(
+                    "min-w-0 flex-1 rounded-[1px] transition-opacity hover:opacity-70",
+                    bar.state === "online" && "bg-emerald-500/80",
+                    bar.state === "degraded" && "bg-amber-400/85",
+                    bar.state === "offline" && "bg-red-500",
+                    bar.state === "nodata" && "bg-muted-foreground/15",
+                  )}
+                />
+              ))}
+            </div>
+            {networkBars.length > 0 && (
+              <div className="mt-1 flex justify-between px-0.5 text-[9px] tabular-nums text-muted-foreground">
+                {[24, 18, 12, 6, 0].map((hoursAgo) => (
+                  <span key={hoursAgo}>
+                    {hoursAgo === 0 ? "现在" : fmtClockShort((networkBars.at(-1)?.ts ?? 0) - hoursAgo * 60 * 60 * 1000)}
+                  </span>
+                ))}
+              </div>
+            )}
+
+            <div className="mt-2 flex flex-wrap items-center gap-1.5 border-t pt-2">
+              <span className="mr-1 text-[9px] text-muted-foreground">近 24 小时断网记录</span>
+              {networkHistory ? (
+                recentNetworkOutages.length > 0 ? (
+                  recentNetworkOutages.map((outage, index) => (
+                    <span
+                      key={`${outage.down_at}-${index}`}
+                      className="rounded border border-red-500/20 bg-red-500/5 px-1.5 py-0.5 font-mono text-[9px] tabular-nums text-red-400"
+                    >
+                      {fmtClock(outage.down_at)} → {outage.ongoing ? "持续中" : fmtClock(outage.up_at)}（
+                      {fmtDuration(outage.seconds)}）
+                    </span>
+                  ))
+                ) : (
+                  <span className="text-[9px] text-emerald-400/80">无断网</span>
+                )
+              ) : (
+                <span className="text-[9px] text-muted-foreground">加载中…</span>
+              )}
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      {/* ── Row 4: 活动流 | 发现 ── */}
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
         {/* 活动流 */}
         <Card className="p-4">
@@ -854,7 +1281,7 @@ export default function DashboardPage() {
         </Card>
       </div>
 
-      {/* ── Row 4: 任务表格 ── */}
+      {/* ── Row 5: 任务表格 ── */}
       <Card className="overflow-hidden p-0">
         <div className="flex items-center justify-between border-b px-4 py-3">
           <div className="flex items-center gap-1.5 text-xs font-semibold">
@@ -942,7 +1369,7 @@ export default function DashboardPage() {
         </table>
       </Card>
 
-      {/* ── Row 5: 资产分布 | 流量状态码 | 拦截 & 待审批 ── */}
+      {/* ── Row 6: 资产分布 | 流量状态码 | 拦截 & 待审批 ── */}
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
         {/* 资产分布 */}
         <Card className="p-4">

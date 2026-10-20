@@ -1585,7 +1585,71 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
           cache_read_tokens: 290000,
         },
       ],
+      hourly: Array.from({ length: 24 }, (_, h) => {
+        const d = new Date();
+        d.setHours(h, 0, 0, 0);
+        const base = 18000 + ((h * 7919) % 42000);
+        return {
+          profile_name: "default",
+          hour: d.toISOString(),
+          input_tokens: base,
+          output_tokens: Math.round(base / 14),
+          cache_read_tokens: Math.round(base * 0.7),
+        };
+      }),
     };
+
+  // ── 网络实时监测（demo）──
+  if (path === "/network/status") {
+    const now = new Date();
+    const down = new Date(now.getTime() - 2 * 60 * 60 * 1000 - 47 * 1000);
+    const up = new Date(down.getTime() + 47 * 1000);
+    const lastOutage = { down_at: down.toISOString(), up_at: up.toISOString(), seconds: 47, ongoing: false };
+    return {
+      sample: {
+        ts: now.toISOString(),
+        state: "online",
+        dns_ok: true,
+        tcp_ok: true,
+        http_ok: true,
+        icmp_ok: true,
+        gateway_ok: true,
+        latency_ms: 38,
+        detail: {
+          dns: { ok: true, ms: 18 },
+          tcp: { ok: true, ms: 24 },
+          http: { ok: true, ms: 38 },
+          icmp: { ok: true, ms: 31 },
+          gateway: { ok: true, ms: 2 },
+          external_ok: 3,
+        },
+      },
+      since: new Date(now.getTime() - 2 * 60 * 60 * 1000).toISOString(),
+      outages: [lastOutage],
+      last_outage: lastOutage,
+      monitor: { interval_seconds: 10, retention_days: 30 },
+    };
+  }
+  if (path === "/network/history") {
+    const hours = Math.min(168, Math.max(1, Number(q.get("hours") ?? 24) || 24));
+    const now = Date.now();
+    const downAt = new Date(now - 2 * 60 * 60 * 1000 - 47 * 1000);
+    const upAt = new Date(downAt.getTime() + 47 * 1000);
+    const outage = { down_at: downAt.toISOString(), up_at: upAt.toISOString(), seconds: 47, ongoing: false };
+    const buckets: Array<{ ts: string; state: "online" | "offline"; samples: number; latency_ms: number }> = [];
+    for (let minutesAgo = hours * 60; minutesAgo >= 0; minutesAgo -= 1) {
+      const t = new Date(now - minutesAgo * 60 * 1000);
+      // Demo: one short outage whose minute bucket contains the failed probes.
+      const offline = minutesAgo === 120;
+      buckets.push({
+        ts: t.toISOString(),
+        state: offline ? "offline" : "online",
+        samples: 6,
+        latency_ms: 28 + ((minutesAgo * 7) % 40),
+      });
+    }
+    return { buckets, outages: [outage], hours, monitor: { interval_seconds: 10, retention_days: 30 } };
+  }
 
   // ── 按模型 token 用量（demo：一条示例）──
   if (path === "/llm/records/by-model")
@@ -2466,7 +2530,8 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
     const from = q.get("from") || "";
     const to = q.get("to") || "";
     if (status && !["pending", "allowed", "denied", "timeout"].includes(status)) throw new Error("无效审批状态");
-    if (decisionSource && !["model", "rule", "manual", "unknown"].includes(decisionSource)) throw new Error("无效判定来源");
+    if (decisionSource && !["model", "rule", "manual", "unknown"].includes(decisionSource))
+      throw new Error("无效判定来源");
     if ([...search].length > 200) throw new Error("搜索关键词不能超过 200 个字符");
     if (search.startsWith("#") && !/^#[1-9]\d*$/.test(search)) throw new Error("审批编号必须为 # 后接正整数");
     for (const value of [from, to]) {

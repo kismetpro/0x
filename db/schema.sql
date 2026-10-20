@@ -1544,3 +1544,19 @@ CREATE TABLE IF NOT EXISTS task_schedule_history (
  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_schedule_history ON task_schedule_history(schedule_id,id DESC);
+
+-- 网络实时监测：默认 10s 采样、保留 30 天，用于精确回看断网/恢复时刻。
+-- state: online（DNS/TCP/HTTP 至少 2 项通）/ degraded（1 项）/ offline（全断）。
+CREATE TABLE IF NOT EXISTS network_samples (
+    id          BIGSERIAL PRIMARY KEY,
+    ts          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    state       TEXT NOT NULL,
+    dns_ok      BOOLEAN NOT NULL,
+    tcp_ok      BOOLEAN NOT NULL,
+    http_ok     BOOLEAN NOT NULL,
+    icmp_ok     BOOLEAN NOT NULL,
+    gateway_ok  BOOLEAN NOT NULL,
+    latency_ms  INTEGER NOT NULL DEFAULT 0,
+    detail      JSONB NOT NULL DEFAULT '{}'::jsonb
+);
+CREATE INDEX IF NOT EXISTS idx_network_samples_ts ON network_samples(ts DESC);
