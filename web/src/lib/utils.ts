@@ -57,20 +57,32 @@ export async function copyText(text: string): Promise<boolean> {
       // 继续走降级方案
     }
   }
+  const active = document.activeElement;
+  const selection = window.getSelection();
+  const ranges = selection ? Array.from({ length: selection.rangeCount }, (_, i) => selection.getRangeAt(i)) : [];
+  const textarea = document.createElement("textarea");
   try {
-    const textarea = document.createElement("textarea");
     textarea.value = text;
+    textarea.setAttribute("aria-label", "复制内容");
     textarea.style.position = "fixed";
-    textarea.style.left = "-9999px";
-    textarea.style.top = "0";
-    document.body.appendChild(textarea);
-    textarea.focus();
+    textarea.style.opacity = "0";
+    textarea.style.pointerEvents = "none";
+    // Stay inside the active modal so its focus trap does not steal the selection.
+    const dialogs = document.querySelectorAll('[role="dialog"][data-state="open"]');
+    const container = active?.closest('[role="dialog"]') ?? dialogs.item(dialogs.length - 1) ?? document.body;
+    container.appendChild(textarea);
+    textarea.focus({ preventScroll: true });
     textarea.select();
-    const ok = document.execCommand("copy");
-    document.body.removeChild(textarea);
-    return ok;
+    return document.execCommand("copy");
   } catch {
     return false;
+  } finally {
+    textarea.remove();
+    if (active instanceof HTMLElement && active.isConnected) active.focus({ preventScroll: true });
+    if (selection && ranges.length) {
+      selection.removeAllRanges();
+      for (const range of ranges) selection.addRange(range);
+    }
   }
 }
 

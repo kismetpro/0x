@@ -109,7 +109,15 @@ const delivery: Record<string, StatusMeta> = {
   skipped: { label: "已跳过", tone: "neutral" },
 };
 
+// Intelligence category colors are shared by task, asset and detail views.
+const intelligence: Record<string, StatusMeta> = {
+  credential: { label: "凭据", tone: "violet" },
+  lead: { label: "重要线索", tone: "blue" },
+  sensitive_data: { label: "敏感数据", tone: "amber" },
+};
+
 const maps = {
+  intelligence,
   intent,
   task,
   severity,

@@ -316,7 +316,8 @@ const (
 // Judge default values.
 const (
 	defaultJudgeTimeoutSecs      = 15
-	defaultJudgeFailAction       = "allow"
+	defaultJudgeRetryCount       = 3
+	defaultJudgeFailAction       = "ask"
 	defaultJudgeAskTimeoutSecs   = 300
 	defaultJudgeAskTimeoutAction = "deny"
 	// DefaultIncompleteScriptAction keeps incomplete snapshots with the judge.
@@ -346,7 +347,7 @@ func (i *Interceptor) judgeConfig() JudgeConfig {
 		Enabled:                i.db.GetBool(settingJudgeEnabled, false),
 		ProfileID:              int64(i.getSettingInt(settingJudgeProfileID, 0)),
 		TimeoutSeconds:         i.getSettingInt(settingJudgeTimeoutSecs, defaultJudgeTimeoutSecs),
-		RetryCount:             min(max(i.getSettingInt(settingJudgeRetryCount, 0), 0), MaxJudgeRetryCount),
+		RetryCount:             min(max(i.getSettingInt(settingJudgeRetryCount, defaultJudgeRetryCount), 0), MaxJudgeRetryCount),
 		RetryIntervalMS:        min(max(i.getSettingInt(settingJudgeRetryIntervalMS, defaultJudgeRetryIntervalMS), 0), MaxJudgeRetryIntervalMS),
 		FailAction:             i.getSettingChoice(settingJudgeFailAction, defaultJudgeFailAction, "allow", "ask", "deny"),
 		AskTimeoutSeconds:      i.getSettingInt(settingJudgeAskTimeoutSecs, defaultJudgeAskTimeoutSecs),

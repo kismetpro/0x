@@ -2,6 +2,8 @@
 
 import * as React from "react";
 
+import { useSearchParams } from "next/navigation";
+
 import {
   BuildingIcon,
   ChevronLeftIcon,
@@ -19,6 +21,7 @@ import {
 import { toast } from "sonner";
 
 import { AssetDslSearch } from "@/components/asset-dsl-search";
+import { IntelligencePanel } from "@/components/intelligence-panel";
 import { ScopeTextEditor } from "@/components/scope-text-editor";
 import {
   AlertDialog,
@@ -107,7 +110,38 @@ const TABS: { key: string; label: string; icon: LucideIcon }[] = [
   { key: "endpoint", label: "接口", icon: LinkIcon },
 ];
 
-export default function AssetsPage() {
+function AssetsContent() {
+  const searchParams = useSearchParams();
+  const requestedAsset = searchParams.get("asset") ?? "";
+  const [assetTarget, setAssetTarget] = React.useState<{ id: number; type: string }>();
+  const [assetTargetError, setAssetTargetError] = React.useState("");
+  React.useEffect(() => {
+    let alive = true;
+    setAssetTarget(undefined);
+    setAssetTargetError("");
+    if (!/^[1-9]\d*$/.test(requestedAsset)) return;
+    api
+      .searchAssets(`id==${requestedAsset}`, "", 1)
+      .then((r) => {
+        if (!alive) return;
+        const asset = r.assets[0];
+        if (!asset) {
+          setAssetTargetError(`资产 #${requestedAsset} 不存在或已删除`);
+          return;
+        }
+        setAssetTarget({ id: asset.id, type: asset.type });
+        setTab(asset.type);
+        setPage(0);
+        setIntelligenceAsset(null);
+      })
+      .catch((e) => {
+        if (alive) setAssetTargetError((e as Error).message);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [requestedAsset]);
+  const [intelligenceAsset, setIntelligenceAsset] = React.useState<number | null>(null);
   const [rows, setRows] = React.useState<Asset[]>([]);
   const [total, setTotal] = React.useState(0);
   const [companies, setCompanies] = React.useState<Company[]>([]);
@@ -230,14 +264,14 @@ export default function AssetsPage() {
   // Reset query + page + selection when switching tabs
   // biome-ignore lint/correctness/useExhaustiveDependencies: tab changes intentionally reset tab-local controls.
   React.useEffect(() => {
-    setQuery("");
+    setQuery(assetTarget?.type === tab ? `id==${assetTarget.id}` : "");
     setDslError("");
     setSelected(new Set());
     setRows([]);
     setRowsTab("");
     setTotal(0);
     setLoaded(false);
-  }, [tab]);
+  }, [tab, assetTarget]);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: these controls intentionally reset server pagination.
   React.useEffect(() => setPage(0), [tab, size, query]);
@@ -314,6 +348,32 @@ export default function AssetsPage() {
 
   return (
     <div className="flex h-[calc(100vh-6rem)] min-h-0 flex-col gap-4">
+      {assetTargetError ? (
+        <p role="alert" className="text-sm text-destructive">
+          {assetTargetError}
+        </p>
+      ) : null}
+      <Dialog
+        open={intelligenceAsset !== null}
+        onOpenChange={(open) => {
+          if (!open) setIntelligenceAsset(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-5xl">
+          <DialogHeader>
+            <DialogTitle>资产 #{intelligenceAsset} 的关联情报</DialogTitle>
+            <DialogDescription>按来源任务查看凭据、线索和敏感数据。</DialogDescription>
+          </DialogHeader>
+          {intelligenceAsset !== null ? (
+            <IntelligencePanel
+              key={intelligenceAsset}
+              scope="assets"
+              scopeId={String(intelligenceAsset)}
+              onNavigate={() => setIntelligenceAsset(null)}
+            />
+          ) : null}
+        </DialogContent>
+      </Dialog>
       <div className="flex items-center justify-between gap-4">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">资产</h1>
@@ -322,6 +382,17 @@ export default function AssetsPage() {
           <span className="text-sm text-muted-foreground">
             共 <span className="tabular-nums">{totalAssets}</span> 项资产
           </span>
+          {tab !== "company" ? (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={selected.size !== 1}
+              title="选择一项资产查看关联情报"
+              onClick={() => setIntelligenceAsset(Array.from(selected)[0])}
+            >
+              关联情报
+            </Button>
+          ) : null}
           {selected.size > 0 && (
             <Button variant="destructive" size="sm" onClick={() => openDelete(Array.from(selected) as number[])}>
               <Trash2Icon className="size-3.5" /> 删除已选 ({selected.size})
@@ -1212,5 +1283,13 @@ function AppendScopeDialog({ company, onSaved }: { company: Company; onSaved: ()
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  );
+}
+
+export default function AssetsPage() {
+  return (
+    <React.Suspense fallback={null}>
+      <AssetsContent />
+    </React.Suspense>
   );
 }

@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/kismetpro/0x/agent"
 	"github.com/kismetpro/0x/db"
@@ -116,6 +117,13 @@ func (s *Server) admitTaskWhenScheduled(t *Task, mode string, requirePaused, sch
 	if t == nil {
 		return false, fmt.Errorf("task not found")
 	}
+	manualSchedule := requirePaused && !scheduled
+	if manualSchedule {
+		// Match the calendar tick's lock order: scheduleMu before concMu. The
+		// override must commit before another tick can decide to pause this task.
+		s.scheduleMu.Lock()
+		defer s.scheduleMu.Unlock()
+	}
 	if mode != "bootstrap" {
 		mode = "resume"
 	}
@@ -150,6 +158,13 @@ func (s *Server) admitTaskWhenScheduled(t *Task, mode string, requirePaused, sch
 			return false, fmt.Errorf("仅已暂停的任务可以继续")
 		}
 		mode = s.resumeAdmissionMode(t)
+	}
+	var manualUntil *time.Time
+	if manualSchedule {
+		manualUntil, err = s.taskManualScheduleEnd(t.ID, time.Now())
+		if err != nil {
+			return false, err
+		}
 	}
 	wasTerminal := isTerminalStatus(lifecycle.Status)
 	wasPaused := lifecycle.Paused || s.engine.IsPaused(t.ID)
@@ -199,7 +214,7 @@ func (s *Server) admitTaskWhenScheduled(t *Task, mode string, requirePaused, sch
 	if wasTerminal {
 		status = "running"
 	}
-	if err := s.m.ApplyTaskAdmission(t.ID, lifecycle.Status, status, shouldQueue, mode, wasQueued); err != nil {
+	if err := s.m.applyTaskAdmission(t.ID, lifecycle.Status, status, shouldQueue, mode, wasQueued, manualUntil); err != nil {
 		if !engineWasPaused && !wasPaused && !wasQueued {
 			s.engine.Resume(t)
 		}

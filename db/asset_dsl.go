@@ -54,6 +54,7 @@ var knownArrayFields = map[string]string{
 
 // knownNumericFields maps DSL field name → SQL column name (integer).
 var knownNumericFields = map[string]string{
+	"id":          "id",
 	"port":        "port",
 	"status_code": "status_code",
 	"status":      "status_code",

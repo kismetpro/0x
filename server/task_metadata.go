@@ -26,6 +26,7 @@ func (s *Server) updateTaskMetadata(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxTaskMetadataRequestSize)
 	var request struct {
 		Name   *string `json:"name"`
+		Remark *string `json:"remark"`
 		Pinned *bool   `json:"pinned"`
 	}
 	if err := decode(r, &request); err != nil {
@@ -37,8 +38,8 @@ func (s *Server) updateTaskMetadata(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	if request.Name == nil && request.Pinned == nil {
-		writeErr(w, http.StatusBadRequest, "至少需要提供 name 或 pinned")
+	if request.Name == nil && request.Pinned == nil && request.Remark == nil {
+		writeErr(w, http.StatusBadRequest, "至少需要提供 name、pinned 或 remark")
 		return
 	}
 	if request.Name != nil {
@@ -53,7 +54,16 @@ func (s *Server) updateTaskMetadata(w http.ResponseWriter, r *http.Request) {
 		}
 		request.Name = &name
 	}
-	task, err := s.m.UpdateTaskMetadata(taskID, db.TaskPatch{Name: request.Name, Pinned: request.Pinned})
+
+	if request.Remark != nil {
+		remark, err := normalizeRemark(*request.Remark)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		request.Remark = &remark
+	}
+	task, err := s.m.UpdateTaskMetadata(taskID, db.TaskPatch{Name: request.Name, Pinned: request.Pinned, Remark: request.Remark})
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return

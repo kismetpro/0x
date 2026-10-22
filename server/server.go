@@ -269,6 +269,10 @@ func New(ctx context.Context, m *Manager, skillDir string, dataDir string, keyDi
 	s.restoreTaskRuntimes()
 	go s.reconcileConcurrency()
 	s.startTaskArchiveWorker()
+	if m.pg != nil {
+		s.seedCredentialProcessor()
+		go s.runCredentialProcessor()
+	}
 	s.wireInterceptReviewer() // LLM 兜底审批:未命中拦截规则的命令交给模型判定
 	return s
 }
@@ -722,6 +726,8 @@ func (s *Server) Handler() http.Handler {
 
 	// 页面一键更新。走的是默认的 JWT 鉴权（auth.go 只放行 /api/auth/* 和
 	// /api/health），所以这几个改动程序自身的接口天然需要登录。
+	mux.HandleFunc("GET /api/update/settings", s.getUpdateSettings)
+	mux.HandleFunc("PUT /api/update/settings", s.putUpdateSettings)
 	mux.HandleFunc("GET /api/update/check", s.updateCheck)
 	mux.HandleFunc("POST /api/update/apply", s.updateApply)
 	mux.HandleFunc("POST /api/update/rollback", s.updateRollback)
@@ -733,6 +739,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/schedules", s.createSchedule)
 	mux.HandleFunc("GET /api/schedules/{id}", s.getSchedule)
 	mux.HandleFunc("PATCH /api/schedules/{id}", s.updateSchedule)
+	mux.HandleFunc("PATCH /api/schedules/{id}/remark", s.updateScheduleMetadata)
+	mux.HandleFunc("PATCH /api/schedules/{id}/metadata", s.updateScheduleMetadata)
 	mux.HandleFunc("DELETE /api/schedules/{id}", s.deleteSchedule)
 	mux.HandleFunc("POST /api/schedules/{id}/pause", s.pauseSchedule)
 	mux.HandleFunc("POST /api/schedules/{id}/resume", s.resumeSchedule)
@@ -874,6 +882,23 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/llm/records/tasks", s.pgLLMTasks)
 	mux.HandleFunc("GET /api/llm/records/by-model", s.pgTokenByModel) // 按模型聚合本任务 token 用量
 	mux.HandleFunc("GET /api/llm/records/{id}", s.pgGetLLMRecord)
+	mux.HandleFunc("GET /api/tasks/{id}/intelligence", s.listIntelligence)
+	mux.HandleFunc("GET /api/tasks/{id}/intelligence/{intelID}", s.getIntelligence)
+	mux.HandleFunc("PATCH /api/tasks/{id}/intelligence/{intelID}", s.updateIntelligence)
+	mux.HandleFunc("POST /api/tasks/{id}/intelligence/{intelID}/credentials/retry", s.retryCredentials)
+	mux.HandleFunc("GET /api/tasks/{id}/intelligence/{intelID}/traffic/{trafficID}", s.credentialTrafficDetail)
+	mux.HandleFunc("GET /api/assets/{id}/intelligence/{intelID}/traffic/{trafficID}", func(w http.ResponseWriter, r *http.Request) {
+		r.SetPathValue("scope", "assets")
+		s.credentialTrafficDetail(w, r)
+	})
+	mux.HandleFunc("GET /api/assets/{id}/intelligence", func(w http.ResponseWriter, r *http.Request) {
+		r.SetPathValue("scope", "assets")
+		s.listIntelligence(w, r)
+	})
+	mux.HandleFunc("GET /api/assets/{id}/intelligence/{intelID}", func(w http.ResponseWriter, r *http.Request) {
+		r.SetPathValue("scope", "assets")
+		s.getIntelligence(w, r)
+	})
 	mux.HandleFunc("GET /api/settings", s.getSettings)
 	mux.HandleFunc("PUT /api/settings", s.putSettings)
 	// 漏洞 IM 推送。渠道是「多实例 + 各自过滤规则」的资源，因此独立成一组
@@ -3415,20 +3440,23 @@ func (s *Server) settingsPayload() map[string]any {
 		concLimit = defaultConcurrencyLimit // 关闭时也回显一个合理默认值给 UI
 	}
 	return map[string]any{
-		"traffic_capture":          s.m.TrafficEnabled(),
-		"agent_traffic_binding":    s.m.pg.GetBool(settingAgentTrafficBinding, false),
-		"llm_record":               s.m.LLMRecordEnabled(),
-		"web_search_enabled":       on,
-		"web_search_backend":       backend,
-		"brave_key_set":            strings.TrimSpace(braveKey) != "",
-		"tavily_key_set":           strings.TrimSpace(tavilyKey) != "",
-		"web_search_proxy":         proxy,                       // 独立出口代理(http/https/socks5)，空=直连
-		"global_proxy":             s.m.GlobalProxy(),           // 全局出口代理(http/https/socks5)，所有目标流量走它，空=直连
-		"python_interpreter":       strings.TrimSpace(pyStored), // 用户/自动设的值(空=用运行时检测)
-		"workers":                  s.m.Workers(),               // 并发工作 agent 数(默认3)；对之后启动的任务生效
-		"task_concurrency_enabled": concOn,                      // 任务并发上限开关(默认关)
-		"task_concurrency_limit":   concLimit,                   // 同时运行任务上限(开启后默认5)
-		"task_round_robin":         s.m.pg.GetBool(settingTaskRoundRobin, false),
+		"traffic_capture":           s.m.TrafficEnabled(),
+		"agent_traffic_binding":     s.m.pg.GetBool(settingAgentTrafficBinding, false),
+		"task_intelligence_enabled": s.m.pg.GetBool(db.SettingTaskIntelligence, false),
+		db.SettingCredentialAgent:   s.m.pg.GetBool(db.SettingCredentialAgent, false),
+		db.SettingCredentialTraffic: s.m.pg.GetBool(db.SettingCredentialAgent, false) && s.m.pg.GetBool(db.SettingCredentialTraffic, false),
+		"llm_record":                s.m.LLMRecordEnabled(),
+		"web_search_enabled":        on,
+		"web_search_backend":        backend,
+		"brave_key_set":             strings.TrimSpace(braveKey) != "",
+		"tavily_key_set":            strings.TrimSpace(tavilyKey) != "",
+		"web_search_proxy":          proxy,                       // 独立出口代理(http/https/socks5)，空=直连
+		"global_proxy":              s.m.GlobalProxy(),           // 全局出口代理(http/https/socks5)，所有目标流量走它，空=直连
+		"python_interpreter":        strings.TrimSpace(pyStored), // 用户/自动设的值(空=用运行时检测)
+		"workers":                   s.m.Workers(),               // 并发工作 agent 数(默认3)；对之后启动的任务生效
+		"task_concurrency_enabled":  concOn,                      // 任务并发上限开关(默认关)
+		"task_concurrency_limit":    concLimit,                   // 同时运行任务上限(开启后默认5)
+		"task_round_robin":          s.m.pg.GetBool(settingTaskRoundRobin, false),
 		// LLM 轮询(故障转移)。默认关；开启后走全局激活配置的 agent 在当前配置不可用时
 		// 自动切到下一个配置。bind_fallback 仅在轮询开启时有意义(默认关)。
 		"llm_pool_enabled":       s.m.LLMPoolEnabled(),
@@ -3488,6 +3516,9 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		TrafficCapture      *bool `json:"traffic_capture"`
 		AgentTrafficBinding *bool `json:"agent_traffic_binding"`
+		TaskIntelligence    *bool `json:"task_intelligence_enabled"`
+		CredentialAgent     *bool `json:"credential_agent_enabled"`
+		CredentialTraffic   *bool `json:"credential_traffic_binding"`
 		LLMRecord           *bool `json:"llm_record"` // LLM 录制开关（默认关）；即时生效，无需重建 agent
 		// Web search. WebSearchEnabled/Backend toggle the tool + backend; BraveKey/TavilyKey
 		// are optional — omit (null) to leave a stored key untouched, send "" to clear.
@@ -3618,6 +3649,12 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		// Pinned tasks' planner/worker and per-profile chat agents hold providers
 		// built under the OLD switch state — drop them so they pick up the new one.
 		s.invalidateProfileAgents()
+	}
+	if req.TaskIntelligence != nil || req.CredentialAgent != nil || req.CredentialTraffic != nil {
+		if err := s.m.pg.SetIntelligenceSettings(r.Context(), req.TaskIntelligence, req.CredentialAgent, req.CredentialTraffic); err != nil {
+			intelligenceError(w, err)
+			return
+		}
 	}
 	if req.AgentTrafficBinding != nil {
 		if err := s.m.pg.SetBool(settingAgentTrafficBinding, *req.AgentTrafficBinding); err != nil {

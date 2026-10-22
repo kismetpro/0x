@@ -30,6 +30,7 @@ import (
 type Task struct {
 	ID           string `json:"id"`
 	ExpID        int64  `json:"exploration_id"`
+	Remark       string `json:"remark"`
 	Name         string `json:"name"` // 可选任务名称;空=未命名
 	CategoryID   *int64 `json:"category_id,omitempty"`
 	CategoryName string `json:"category_name,omitempty"`
@@ -83,6 +84,7 @@ type Task struct {
 // directly after the task has been published by Manager.
 type taskLifecycleState struct {
 	Name          string
+	Remark        string
 	PinnedAt      int64
 	Status        string
 	Paused        bool
@@ -110,6 +112,7 @@ func (t *Task) lifecycleSnapshot() taskLifecycleState {
 func (t *Task) lifecycleSnapshotLocked() taskLifecycleState {
 	return taskLifecycleState{
 		Name:          t.Name,
+		Remark:        t.Remark,
 		PinnedAt:      t.PinnedAt,
 		Status:        t.Status,
 		Paused:        t.Paused,
@@ -134,6 +137,7 @@ func (t *Task) updateLifecycle(update func(*taskLifecycleState)) {
 	state := t.lifecycleSnapshotLocked()
 	update(&state)
 	t.Name = state.Name
+	t.Remark = state.Remark
 	t.PinnedAt = state.PinnedAt
 	t.Status = state.Status
 	t.Paused = state.Paused
@@ -845,6 +849,7 @@ func taskFromPG(pt *pgdb.Task, store *pgdb.ExplorationStore, ic *intercept.Inter
 	return &Task{
 		ID: strconv.FormatInt(pt.ID, 10), ExpID: pt.ExplorationID,
 		Name:       pt.Name,
+		Remark:     pt.Remark,
 		CategoryID: cloneInt64Ptr(pt.CategoryID), CategoryName: pt.CategoryName,
 		PinnedAt:    unixOrZero(pt.PinnedAt),
 		Description: pt.Description, Goal: pt.Goal, CreatedAt: pt.CreatedAt.Unix(), Paused: pt.Paused, Queued: pt.Queued,
@@ -884,6 +889,7 @@ func (m *Manager) UpdateTaskMetadata(taskID string, patch pgdb.TaskPatch) (*Task
 	}
 	task.updateLifecycle(func(state *taskLifecycleState) {
 		state.Name = updated.Name
+		state.Remark = updated.Remark
 		state.PinnedAt = unixOrZero(updated.PinnedAt)
 	})
 	return task, nil
@@ -1160,6 +1166,12 @@ func (m *Manager) SetTaskPaused(id string, paused bool) error {
 // admission keeps its FIFO timestamp; a task that was explicitly paused and is
 // now re-queued receives a fresh tail position.
 func (m *Manager) ApplyTaskAdmission(id, expectedStatus, status string, queued bool, mode string, preservePosition bool) error {
+	return m.applyTaskAdmission(id, expectedStatus, status, queued, mode, preservePosition, nil)
+}
+
+// Manual task control records its schedule override in the admission commit, so
+// failed resumes cannot bypass a calendar and FIFO promotion preserves it.
+func (m *Manager) applyTaskAdmission(id, expectedStatus, status string, queued bool, mode string, preservePosition bool, manualUntil *time.Time) error {
 	m.taskStateMu.Lock()
 	defer m.taskStateMu.Unlock()
 	n, err := strconv.ParseInt(id, 10, 64)
@@ -1183,6 +1195,7 @@ func (m *Manager) ApplyTaskAdmission(id, expectedStatus, status string, queued b
 	        ELSE NULL
 	    END,
 	    paused=false, schedule_paused=false,
+	    schedule_manual_until=COALESCE($7::timestamptz, schedule_manual_until),
 	    queued=$3,
 	    queued_at=CASE
 	        WHEN NOT $3 THEN NULL
@@ -1203,7 +1216,7 @@ func (m *Manager) ApplyTaskAdmission(id, expectedStatus, status string, queued b
 	        ELSE deadline_at
 	    END
 	WHERE id=$1 AND deleted_at IS NULL AND status=$6
-	RETURNING queued_at, queue_mode, completed_at, first_run_at, deadline_at`, n, status, queued, mode, preservePosition, expectedStatus).
+	RETURNING queued_at, queue_mode, completed_at, first_run_at, deadline_at`, n, status, queued, mode, preservePosition, expectedStatus, manualUntil).
 		Scan(&queuedAt, &committedMode, &completedAt, &firstRunAt, &deadlineAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("task %s lifecycle changed before admission (expected status %q)", id, expectedStatus)
@@ -1256,7 +1269,7 @@ func (m *Manager) ApplyTaskPauseOrigin(id string, scheduled bool) error {
 	}
 	var mode string
 	err = m.pg.QueryRow(`UPDATE tasks
-		SET paused=true, queued=false, queued_at=NULL, schedule_paused=$2
+		SET paused=true, queued=false, queued_at=NULL, schedule_paused=$2, schedule_manual_until=NULL
 		WHERE id=$1 AND deleted_at IS NULL AND paused=false
 		  AND status NOT IN ('done','failed','timeout')
 		RETURNING COALESCE(queue_mode,'')`, n, scheduled).Scan(&mode)

@@ -17,6 +17,7 @@ import {
 import { toast } from "sonner";
 
 import { DateSelect } from "@/components/date-select";
+import { RemarkEditor, ScheduleNameEditor } from "@/components/remark-editor";
 import { TimeSelect } from "@/components/time-select";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -702,7 +703,7 @@ export default function SchedulesPage() {
           </Card>
         ) : (
           <div className="overflow-x-auto rounded-lg border bg-card">
-            <Table>
+            <Table className="**:data-[slot='table-cell']:px-4 **:data-[slot='table-head']:px-4">
               <TableHeader className="bg-muted/40">
                 <TableRow>
                   <TableHead className="w-12">
@@ -712,7 +713,9 @@ export default function SchedulesPage() {
                       onCheckedChange={(checked) => toggleAllVisible(checked === true)}
                     />
                   </TableHead>
+                  <TableHead className="font-mono">ID</TableHead>
                   <TableHead className="min-w-44">计划名称</TableHead>
+                  <TableHead className="w-px">备注</TableHead>
                   <TableHead className="w-28">时间线</TableHead>
                   <TableHead className="min-w-48">运行周期</TableHead>
                   <TableHead className="min-w-40">开始时间</TableHead>
@@ -726,7 +729,7 @@ export default function SchedulesPage() {
               <TableBody>
                 {visibleItems.map((item) => (
                   <React.Fragment key={item.id}>
-                    <TableRow>
+                    <TableRow className="group">
                       <TableCell className="w-12">
                         <Checkbox
                           aria-label={`选择计划 ${item.name}`}
@@ -735,8 +738,29 @@ export default function SchedulesPage() {
                         />
                       </TableCell>
                       <TableCell>
-                        <div className="font-medium">{item.name}</div>
-                        <div className="text-muted-foreground text-xs">计划 #{item.id}</div>
+                        <code className="bg-muted rounded px-1.5 py-0.5 font-mono text-xs">{item.id}</code>
+                      </TableCell>
+                      <TableCell className="font-medium">
+                        <ScheduleNameEditor
+                          value={item.name}
+                          label={`计划 #${item.id}`}
+                          onSave={async (name) => {
+                            const updated = await api.renameSchedule(item.id, name);
+                            setItems((current) => current.map((entry) => entry.id === item.id ? { ...entry, name: updated.name } : entry));
+                          }}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <RemarkEditor
+                          value={item.remark}
+                          label={`计划 #${item.id} ${item.name}`}
+                          onSave={async (remark) => {
+                            const updated = await api.updateScheduleRemark(item.id, remark);
+                            setItems((current) =>
+                              current.map((entry) => entry.id === item.id ? { ...entry, remark: updated.remark } : entry),
+                            );
+                          }}
+                        />
                       </TableCell>
                       <TableCell>
                         <Button size="sm" variant="outline" onClick={() => void toggleTimeline(item.id)}>
@@ -844,7 +868,7 @@ export default function SchedulesPage() {
                     </TableRow>
                     {expandedId === item.id ? (
                       <TableRow>
-                        <TableCell colSpan={10} className="bg-muted/10 p-3">
+                        <TableCell colSpan={12} className="bg-muted/10 p-3">
                           <ScheduleTimeline schedule={timelineById[item.id]} loading={timelineLoadingId === item.id} />
                         </TableCell>
                       </TableRow>

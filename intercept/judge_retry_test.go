@@ -31,16 +31,39 @@ func retryTestInterceptor(t *testing.T, settings map[string]string) *Interceptor
 	return New(&db.DB{DB: d})
 }
 
+func TestJudgeFailActionDefaultsAndOverrides(t *testing.T) {
+	for _, tc := range []struct {
+		name, value, want string
+	}{
+		{"missing", "", "ask"},
+		{"invalid", "invalid", "ask"},
+		{"saved_allow", "allow", "allow"},
+		{"saved_ask", "ask", "ask"},
+		{"saved_deny", "deny", "deny"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			settings := map[string]string{}
+			if tc.value != "" {
+				settings[settingJudgeFailAction] = tc.value
+			}
+			if got := retryTestInterceptor(t, settings).GetJudgeConfig().FailAction; got != tc.want {
+				t.Fatalf("fail action=%s want=%s", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestJudgeRetryConfigDefaultsAndBounds(t *testing.T) {
 	for _, tc := range []struct {
 		name            string
 		settings        map[string]string
 		count, interval int
 	}{
-		{"legacy", nil, 0, 1000},
-		{"configured", map[string]string{settingJudgeRetryCount: "3", settingJudgeRetryIntervalMS: "25"}, 3, 25},
+		{"default", nil, 3, 1000},
+		{"configured", map[string]string{settingJudgeRetryCount: "2", settingJudgeRetryIntervalMS: "25"}, 2, 25},
+		{"disabled", map[string]string{settingJudgeRetryCount: "0"}, 0, 1000},
 		{"immediate", map[string]string{settingJudgeRetryCount: "1", settingJudgeRetryIntervalMS: "0"}, 1, 0},
-		{"malformed", map[string]string{settingJudgeRetryCount: "bad", settingJudgeRetryIntervalMS: "bad"}, 0, 1000},
+		{"malformed", map[string]string{settingJudgeRetryCount: "bad", settingJudgeRetryIntervalMS: "bad"}, 3, 1000},
 		{"negative", map[string]string{settingJudgeRetryCount: "-1", settingJudgeRetryIntervalMS: "-1"}, 0, 0},
 		{"excessive", map[string]string{settingJudgeRetryCount: "999", settingJudgeRetryIntervalMS: "999999999"}, 20, 3600000},
 	} {
@@ -63,14 +86,19 @@ func TestJudgeRetriesBeforeApplyingFailurePolicy(t *testing.T) {
 		{"recover", "deny", "allow", 2, 3, "allow", false},
 		{"valid_deny_is_final", "allow", "deny", 0, 1, "deny", false},
 		{"valid_ask_is_final", "allow", "ask", 0, 1, "ask", false},
+		{"exhaust_default", "", "allow", 9, 3, "ask", true},
 		{"exhaust_allow", "allow", "allow", 9, 3, "allow", true},
 		{"exhaust_ask", "ask", "allow", 9, 3, "ask", true},
 		{"exhaust_deny", "deny", "allow", 9, 3, "deny", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			i := retryTestInterceptor(t, map[string]string{
-				settingJudgeEnabled: "true", settingJudgeRetryCount: "2", settingJudgeRetryIntervalMS: "0", settingJudgeFailAction: tc.failAction,
-			})
+			settings := map[string]string{
+				settingJudgeEnabled: "true", settingJudgeRetryCount: "2", settingJudgeRetryIntervalMS: "0",
+			}
+			if tc.failAction != "" {
+				settings[settingJudgeFailAction] = tc.failAction
+			}
+			i := retryTestInterceptor(t, settings)
 			calls := 0
 			var first ReviewInput
 			i.SetReviewer(func(ctx context.Context, id int64, prompt string, input ReviewInput) (Decision, error) {
@@ -122,16 +150,33 @@ func TestJudgeRetriesInvalidVerdict(t *testing.T) {
 	}
 }
 
-func TestJudgeLegacyConfigDoesNotRetry(t *testing.T) {
-	i := retryTestInterceptor(t, map[string]string{settingJudgeEnabled: "true", settingJudgeFailAction: "deny"})
-	calls := 0
-	i.SetReviewer(func(context.Context, int64, string, ReviewInput) (Decision, error) {
-		calls++
-		return Decision{}, errors.New("failed")
-	})
-	got, _ := i.Judge(t.Context(), "Bash", json.RawMessage(`{"command":"echo ok"}`))
-	if calls != 1 || got.Action != "deny" || !got.ModelFallback {
-		t.Fatalf("calls=%d out=%+v", calls, got)
+func TestJudgeDefaultRetriesAndExplicitDisable(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		settings  map[string]string
+		wantCalls int
+	}{
+		{"default", nil, 4},
+		{"disabled", map[string]string{settingJudgeRetryCount: "0"}, 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			settings := map[string]string{
+				settingJudgeEnabled: "true", settingJudgeFailAction: "deny", settingJudgeRetryIntervalMS: "0",
+			}
+			for key, value := range tc.settings {
+				settings[key] = value
+			}
+			i := retryTestInterceptor(t, settings)
+			calls := 0
+			i.SetReviewer(func(context.Context, int64, string, ReviewInput) (Decision, error) {
+				calls++
+				return Decision{}, errors.New("failed")
+			})
+			got, _ := i.Judge(t.Context(), "Bash", json.RawMessage(`{"command":"echo ok"}`))
+			if calls != tc.wantCalls || got.Action != "deny" || !got.ModelFallback {
+				t.Fatalf("calls=%d out=%+v", calls, got)
+			}
+		})
 	}
 }
 

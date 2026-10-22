@@ -207,6 +207,35 @@ jobs:
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
         run: |
           # 检查公开的生产域名；Vercel 可单独保护部署专属的随机域名。
-          curl --fail --silent --show-error --retry 5 --retry-all-errors --retry-delay 3 \
-            "${DEMO_URL%/}/demo-version.json" -o /tmp/demo-version.json
-          jq -e --arg tag "$RELEASE_TAG" '.tag == $tag and .mock == true' /tmp/demo-version.json
+          # HTTP 成功时也可能暂时读到旧版本，因此请求和内容校验必须一起重试。
+          expected_commit=$(git rev-parse HEAD)
+          response=$(mktemp)
+          trap 'rm -f "$response"' EXIT
+          deadline=$((SECONDS + 120))
+          for attempt in $(seq 1 24); do
+            remaining=$((deadline - SECONDS))
+            if [ "$remaining" -le 0 ]; then
+              break
+            fi
+            request_timeout=$((remaining < 10 ? remaining : 10))
+            rm -f "$response"
+            if curl --fail-with-body --silent --show-error --connect-timeout 5 --max-time "$request_timeout" \
+              --header 'Cache-Control: no-cache' \
+              "${DEMO_URL%/}/demo-version.json?verify=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-${attempt}" \
+              -o "$response" && \
+              jq -e --arg tag "$RELEASE_TAG" --arg commit "$expected_commit" \
+                '.tag == $tag and .commit == $commit and .mock == true' "$response" > /dev/null; then
+              echo "Demo 版本校验通过：$RELEASE_TAG ($expected_commit)"
+              exit 0
+            fi
+            echo "::notice::Demo 版本尚未就绪（第 $attempt/24 次），等待生产域名同步"
+            remaining=$((deadline - SECONDS))
+            if [ "$attempt" -lt 24 ] && [ "$remaining" -gt 0 ]; then
+              sleep "$((remaining < 5 ? remaining : 5))"
+            fi
+          done
+          echo "::error::Demo 版本校验失败，期望 $RELEASE_TAG ($expected_commit)，mock=true；最后一次响应如下"
+          if [ -f "$response" ]; then
+            cat "$response"
+          fi
+          exit 1

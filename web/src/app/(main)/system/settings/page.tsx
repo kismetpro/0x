@@ -7,6 +7,7 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Field, FieldContent, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -15,10 +16,15 @@ import { api } from "@/lib/api";
 import { CHAT_SEND_MODE_OPTIONS, type ChatSendMode, setChatSendMode, useChatSendMode } from "@/lib/chat-send-mode";
 import type { Settings } from "@/lib/types";
 
-import { UpdateCard } from "./_components/update-card";
 import { BasicAuthCard } from "./_components/basic-auth-card";
+import { UpdateCard } from "./_components/update-card";
 
 export default function SystemSettingsPage() {
+  const [credentialAgent, setCredentialAgent] = React.useState(false);
+  const [credentialBinding, setCredentialBinding] = React.useState(false);
+  const [savingCredentials, setSavingCredentials] = React.useState(false);
+  const [intelligenceEnabled, setIntelligenceEnabled] = React.useState(false);
+  const [savingIntelligence, setSavingIntelligence] = React.useState(false);
   const [trafficCapture, setTrafficCapture] = React.useState(false);
   const [agentTrafficBinding, setAgentTrafficBinding] = React.useState(false);
   const [webSearch, setWebSearch] = React.useState(false);
@@ -48,6 +54,9 @@ export default function SystemSettingsPage() {
   const sendMode = useChatSendMode();
 
   const apply = React.useCallback((s: Settings) => {
+    setCredentialAgent(!!s.credential_agent_enabled);
+    setCredentialBinding(!!s.credential_traffic_binding);
+    setIntelligenceEnabled(!!s.task_intelligence_enabled);
     setTrafficCapture(!!s.traffic_capture);
     setAgentTrafficBinding(!!s.agent_traffic_binding);
     setWebSearch(!!s.web_search_enabled);
@@ -255,6 +264,20 @@ export default function SystemSettingsPage() {
   // brave-free selected but no key stored and none being entered → tool stays off.
   const braveNeedsKey = webSearch && backend === "brave-free" && !braveKeySet;
 
+  const saveCredentialOptions = async (patch: Partial<Settings>) => {
+    setSavingCredentials(true);
+    try {
+      const s = await api.setSettings(patch);
+      setCredentialAgent(!!s.credential_agent_enabled);
+      setCredentialBinding(!!s.credential_traffic_binding);
+      setIntelligenceEnabled(!!s.task_intelligence_enabled);
+      toast.success("凭据处理设置已保存");
+    } catch (e) {
+      toast.error("保存失败：" + (e as Error).message);
+    } finally {
+      setSavingCredentials(false);
+    }
+  };
   return (
     <div className="flex flex-1 flex-col gap-4 md:gap-6">
       <div>
@@ -436,6 +459,77 @@ export default function SystemSettingsPage() {
 
         <Card className="mb-4 break-inside-avoid md:mb-6">
           <CardHeader>
+            <CardTitle>任务情报</CardTitle>
+            <CardDescription>自动记录任务中获取的凭据、重要线索和敏感数据，并保留来源证据。</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Field orientation="horizontal">
+              <FieldContent>
+                <FieldLabel htmlFor="task-intelligence">Agent 自动记录</FieldLabel>
+                <FieldDescription>
+                  默认关闭。任务执行时上报凭据、重要线索和敏感数据，会增加任务 Agent 的提示与上报
+                  Token。仅负责记录，不启动凭据整理。关闭后同时停用下方 Agent 与流量绑定，已有情报和整理结果仍可查看。
+                </FieldDescription>
+              </FieldContent>
+              <Switch
+                id="task-intelligence"
+                checked={intelligenceEnabled}
+                disabled={!loaded || savingIntelligence || savingCredentials}
+                onCheckedChange={async (value) => {
+                  setSavingIntelligence(true);
+                  try {
+                    const settings = await api.setSettings({ task_intelligence_enabled: value });
+                    setIntelligenceEnabled(!!settings.task_intelligence_enabled);
+                    setCredentialAgent(!!settings.credential_agent_enabled);
+                    setCredentialBinding(!!settings.credential_traffic_binding);
+                    toast.success(value ? "任务情报自动记录已开启" : "任务情报自动记录已关闭");
+                  } catch (error) {
+                    toast.error("保存失败：" + (error as Error).message);
+                  } finally {
+                    setSavingIntelligence(false);
+                  }
+                }}
+              />
+            </Field>
+            <Field orientation="horizontal" className="mt-5">
+              <FieldContent>
+                <FieldLabel htmlFor="credential-agent">Agent 开关</FieldLabel>
+                <FieldDescription>
+                  默认关闭。独立整理已有和新增凭据，拆分并高亮账号、密码、Token 和
+                  Cookie，不改变原始上报或验证状态。复杂文本会使用额外模型 Token；可解析的 JSON
+                  无需模型。需先开启上方自动记录。模型可在「Agent → 凭据整理」中配置。
+                </FieldDescription>
+              </FieldContent>
+              <Switch
+                id="credential-agent"
+                checked={credentialAgent}
+                disabled={!loaded || savingCredentials || savingIntelligence || !intelligenceEnabled}
+                onCheckedChange={(value) => void saveCredentialOptions({ credential_agent_enabled: value })}
+              />
+            </Field>
+            {credentialAgent ? (
+              <Field orientation="horizontal" className="mt-5">
+                <FieldContent>
+                  <FieldLabel htmlFor="credential-traffic">绑定流量</FieldLabel>
+                  <FieldDescription>
+                    默认关闭，仅在 Agent
+                    开关开启时可用。核对已抓取流量中的资产与凭据，关联真实请求或响应并保存匹配片段；不主动登录，也不把匹配流量视为验证成功。关闭
+                    Agent 时同时停用，已有绑定保留。
+                  </FieldDescription>
+                </FieldContent>
+                <Switch
+                  id="credential-traffic"
+                  checked={credentialBinding}
+                  disabled={!loaded || savingCredentials}
+                  onCheckedChange={(value) => void saveCredentialOptions({ credential_traffic_binding: value })}
+                />
+              </Field>
+            ) : null}
+          </CardContent>
+        </Card>
+
+        <Card className="mb-4 break-inside-avoid md:mb-6">
+          <CardHeader>
             <CardTitle className="flex items-center gap-2 text-base">
               <SearchIcon className="size-4" />
               网络搜索
@@ -446,8 +540,8 @@ export default function SystemSettingsPage() {
               记录代理，独立于流量捕获。
               <br />
               来源可选 <b>DuckDuckGo（ddgs）</b>（无需 Key）、<b>Brave（免费版）</b>（需填写 Brave API Key）、{" "}
-              <b>Tavily</b>（需填写 Tavily API Key）或 <b>DeepSeek</b>（复用当前 LLM 配置）。总开关关闭时，各
-              Agent 的网络搜索开关不可用。
+              <b>Tavily</b>（需填写 Tavily API Key）或 <b>DeepSeek</b>（复用当前 LLM 配置）。总开关关闭时，各 Agent
+              的网络搜索开关不可用。
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-col gap-4">

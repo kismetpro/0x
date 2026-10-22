@@ -1357,6 +1357,7 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
     const task = mockTasks.find((item) => item.id === seg[1]);
     if (!task) throw new Error("任务不存在");
     if (typeof b.name === "string") task.name = b.name.trim();
+    if (typeof b.remark === "string") task.remark = b.remark.trim();
     if (typeof b.pinned === "boolean") {
       task.pinned = b.pinned;
       task.pinned_at = b.pinned ? (task.pinned_at ?? new Date().toISOString()) : null;
@@ -2576,9 +2577,9 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
       profile_id: 0,
       prompt: "",
       timeout_seconds: 15,
-      retry_count: 0,
+      retry_count: 3,
       retry_interval_ms: 1000,
-      fail_action: "allow",
+      fail_action: "ask",
       ask_timeout_seconds: 300,
       ask_timeout_action: "deny",
       incomplete_script_action: "model",

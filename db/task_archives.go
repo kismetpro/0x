@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	TaskArchiveFormatVersion       = 3
+	TaskArchiveFormatVersion       = 4
 	TaskArchiveLegacyFormatVersion = 1
 	TaskArchiveLLMRecordsPath      = "database/llm_records.ndjson"
 )
@@ -533,7 +533,10 @@ UNION SELECT anchor.asset_id FROM exploration_anchors anchor
 UNION SELECT value::bigint FROM findings finding
       CROSS JOIN LATERAL jsonb_array_elements_text(
         CASE WHEN jsonb_typeof(finding.asset_ids)='array' THEN finding.asset_ids ELSE '[]'::jsonb END
-      ) value WHERE finding.task_id=$1 AND value ~ '^[0-9]+$'`
+      ) value WHERE finding.task_id=$1 AND value ~ '^[0-9]+$'
+UNION SELECT value::bigint FROM task_intelligence intelligence
+      CROSS JOIN LATERAL jsonb_array_elements_text(intelligence.asset_ids) value
+      WHERE intelligence.task_id=$1 AND value ~ '^[0-9]+$'`
 }
 
 // SnapshotTaskArchive reads one repeatable PostgreSQL snapshot. Task-owned Agent
@@ -587,6 +590,7 @@ func (d *DB) snapshotTaskArchive(taskID int64, llmRecords io.Writer) (*TaskArchi
 		{"task_llm_profiles", `SELECT * FROM task_llm_profiles WHERE task_id=$1 ORDER BY position`, []any{taskID}},
 		{"task_scope", `SELECT * FROM task_scope WHERE task_id=$1 ORDER BY id`, []any{taskID}},
 		{"findings", `SELECT * FROM findings WHERE task_id=$1 ORDER BY id`, []any{taskID}},
+		{"task_intelligence", `SELECT * FROM task_intelligence WHERE task_id=$1 ORDER BY id`, []any{taskID}},
 		{"finding_traffic_bindings", `SELECT b.* FROM finding_traffic_bindings b JOIN findings f ON f.id=b.finding_id WHERE f.task_id=$1 ORDER BY b.finding_id,b.position,b.id`, []any{taskID}},
 		{"traffic_evidence_snapshots", `SELECT s.* FROM traffic_evidence_snapshots s WHERE EXISTS(SELECT 1 FROM finding_traffic_bindings b JOIN findings f ON f.id=b.finding_id WHERE b.snapshot_id=s.id AND f.task_id=$1) ORDER BY s.id`, []any{taskID}},
 		{"llm_records", `SELECT * FROM llm_records WHERE COALESCE(task_id,'')=$1 ORDER BY id`, []any{strconv.FormatInt(taskID, 10)}},

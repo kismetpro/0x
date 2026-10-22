@@ -7,6 +7,7 @@ export type EngineMode = "exploring" | "paused" | "stalled" | "idle";
 export interface Task {
   distinct_findings?: FindingDistinctStats;
   id: string;
+  remark?: string;
   name?: string; // 可选任务名称;空/缺省=未命名,展示时回退到描述
   category_id?: number;
   category_name?: string;
@@ -719,6 +720,7 @@ export interface AgentTrigger {
 export interface TaskSchedule {
   id: number;
   name: string;
+  remark?: string;
   enabled: boolean;
   timezone_mode: "beijing" | "system";
   timezone?: string;
@@ -1020,6 +1022,9 @@ export interface TrafficHost {
 // ---- App settings (runtime toggles) ----
 export interface Settings {
   traffic_capture: boolean;
+  credential_agent_enabled: boolean;
+  credential_traffic_binding: boolean;
+  task_intelligence_enabled: boolean; // 默认关闭；关闭不注入情报工具或提示
   agent_traffic_binding: boolean; // Agent 自动绑定流量证据，默认关闭；不影响人工绑定
   llm_record: boolean; // LLM 录制开关（默认关）；关闭时不记录任何 LLM 调用
   // Web search. brave_key_set / tavily_key_set reflect whether a key is stored
@@ -1689,6 +1694,10 @@ export interface FindingTrafficDetail {
   response: EvidenceBodyPreview;
 }
 
+export interface UpdateSettings {
+  proxy: string;
+}
+
 /** GET /api/update/check —— 当前版本与 GitHub 最新正式版的比较结果。 */
 export interface UpdateCheck {
   /** 当前运行的版本；开发构建为 "dev" 或 git describe 的带后缀形式。 */
@@ -1811,4 +1820,70 @@ export interface FindingCaseReviewRun {
   task_id: string;
   state: "queued" | "running" | "done" | "failed";
   error: string;
+}
+
+export type IntelligenceKind = "credential" | "lead" | "sensitive_data";
+export interface CredentialAccount {
+  label?: string;
+  username?: string;
+  password?: string;
+  token?: string;
+  cookie?: string;
+  endpoint?: string;
+  protocol?: string;
+}
+export interface CredentialTraffic {
+  id: string;
+  url: string;
+  method: string;
+  status: number;
+  side: string;
+  excerpt: string;
+  accounts: number[];
+}
+export interface CredentialAnalysis {
+  state: "queued" | "processing" | "ready" | "error";
+  method?: "rules" | "agent";
+  accounts: CredentialAccount[] | null;
+  traffic: CredentialTraffic[] | null;
+  traffic_state: string;
+  traffic_note?: string;
+  note?: string;
+  error?: string;
+  model?: string;
+  input_tokens: number;
+  output_tokens: number;
+  processed_at?: string;
+}
+export interface CredentialTrafficDetail {
+  reference: CredentialTraffic;
+  req?: string;
+  resp?: string;
+  unavailable: boolean;
+}
+export interface TaskIntelligence {
+  credentials?: CredentialAnalysis;
+  source_session?: string;
+  id: number;
+  task_id: number;
+  node_id?: number;
+  kind: IntelligenceKind;
+  title: string;
+  content: string;
+  evidence: string;
+  confidence: "observed" | "inferred";
+  status: string;
+  asset_ids: number[];
+  worker: string;
+  created_at: string;
+  updated_at: string;
+  inherited: boolean;
+}
+export interface IntelligencePage {
+  credential_agent_enabled: boolean;
+  credential_traffic_binding: boolean;
+  items: TaskIntelligence[];
+  total: number;
+  counts: Record<IntelligenceKind, number>;
+  enabled: boolean;
 }

@@ -136,6 +136,10 @@ func TestTaskArchiveDatabaseRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	remark := "归档后保留的备注 📝"
+	if _, err := d.UpdateTask(task.ID, TaskPatch{Remark: &remark}); err != nil {
+		t.Fatal(err)
+	}
 	var companyID, llmProfileID int64
 	if err := d.QueryRow(`INSERT INTO companies(name,nkey) VALUES($1,$2) RETURNING id`,
 		fmt.Sprintf("archive-company-%d", task.ID), fmt.Sprintf("archive-company-%d", task.ID)).Scan(&companyID); err != nil {
@@ -198,6 +202,13 @@ VALUES($1,$2,0,'quota_exhausted','balance exhausted',$3,$4,$3)`, task.ID, llmPro
 		t.Fatal(err)
 	}
 	if _, err := d.AddFinding(task.ID, nodeID, vulnclass, "archive finding", SeverityCritical, "summary", "evidence", "worker", []int64{assetID}); err != nil {
+		t.Fatal(err)
+	}
+	intel, err := d.RecordIntelligence(t.Context(), task.ID, 0, "archive-qa", IntelligenceInput{Kind: "credential", Title: "archive credential", Content: "archive-fixture", Evidence: "local fixture", Confidence: "observed"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = d.Exec(`UPDATE task_intelligence SET credential_analysis='{"state":"ready","method":"rules","accounts":[{"username":"qa","password":"archive-fixture"}],"traffic":[{"id":"archive-flow","url":"http://fixture.invalid","method":"POST","status":200,"side":"request","excerpt":"archive-fixture","accounts":[0]}],"traffic_state":"ready"}'::jsonb WHERE id=$1`, intel.ID); err != nil {
 		t.Fatal(err)
 	}
 	archive, err := d.QueueTaskArchive(task.ID)
@@ -269,6 +280,10 @@ VALUES($1,$2,0,'quota_exhausted','balance exhausted',$3,$4,$3)`, task.ID, llmPro
 	if err != nil {
 		t.Fatal(err)
 	}
+	restoredIntel, err := d.GetIntelligence(t.Context(), intel.ID)
+	if err != nil || restoredIntel.Content != "archive-fixture" || restoredIntel.Credentials == nil || len(restoredIntel.Credentials.Accounts) != 1 || len(restoredIntel.Credentials.Traffic) != 1 {
+		t.Fatalf("intelligence lost after archive: %+v %v", restoredIntel, err)
+	}
 	warningFound := false
 	for _, warning := range warnings {
 		if strings.Contains(warning, fmt.Sprintf("任务企业 %d 已删除", companyID)) {
@@ -282,7 +297,7 @@ VALUES($1,$2,0,'quota_exhausted','balance exhausted',$3,$4,$3)`, task.ID, llmPro
 	if err != nil || live == nil {
 		t.Fatalf("restored task = %+v, %v", live, err)
 	}
-	if live.Name != "cold task" || !live.Paused {
+	if live.Name != "cold task" || live.Remark != remark || !live.Paused {
 		t.Fatalf("restored task metadata mismatch: %+v", live)
 	}
 	if err := d.QueryRow(`SELECT count(*) FROM exploration_nodes WHERE exploration_id=$1`, task.ExplorationID).Scan(&nodes); err != nil {

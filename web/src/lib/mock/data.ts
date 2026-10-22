@@ -3324,6 +3324,9 @@ export const tools: Tool[] = [
 
 // ── Settings ─────────────────────────────────────────────────────────────────
 export const settings: Settings = {
+  task_intelligence_enabled: false,
+  credential_agent_enabled: false,
+  credential_traffic_binding: false,
   traffic_capture: true,
   agent_traffic_binding: false,
   llm_record: false,

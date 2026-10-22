@@ -553,6 +553,7 @@ ALTER TABLE tasks ADD COLUMN IF NOT EXISTS queued_at TIMESTAMPTZ;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS queue_mode TEXT NOT NULL DEFAULT '';
 -- 可选的任务名称;补旧库。空串=未命名,前端展示时回退到描述。
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS name TEXT NOT NULL DEFAULT '';
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS remark TEXT NOT NULL DEFAULT '';
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS category_id BIGINT REFERENCES task_categories(id) ON DELETE SET NULL;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS pinned_at TIMESTAMPTZ;
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS active_llm_profile_id BIGINT REFERENCES llm_profiles(id) ON DELETE SET NULL;
@@ -1057,6 +1058,7 @@ CREATE TABLE IF NOT EXISTS task_schedules (
 );
 CREATE INDEX IF NOT EXISTS idx_task_schedules_enabled ON task_schedules(enabled, id);
 ALTER TABLE task_schedules ADD COLUMN IF NOT EXISTS end_date DATE;
+ALTER TABLE task_schedules ADD COLUMN IF NOT EXISTS remark TEXT NOT NULL DEFAULT '';
 DROP TRIGGER IF EXISTS trg_task_schedules_upd ON task_schedules;
 CREATE TRIGGER trg_task_schedules_upd BEFORE UPDATE ON task_schedules
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
@@ -1069,6 +1071,7 @@ CREATE TABLE IF NOT EXISTS task_schedule_tasks (
     PRIMARY KEY (schedule_id, task_id)
 );
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS schedule_paused BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS schedule_manual_until TIMESTAMPTZ;
 CREATE INDEX IF NOT EXISTS idx_task_schedule_tasks_task ON task_schedule_tasks(task_id);
 ALTER TABLE task_schedule_tasks ADD COLUMN IF NOT EXISTS paused_by_schedule BOOLEAN NOT NULL DEFAULT false;
 
@@ -1560,3 +1563,27 @@ CREATE TABLE IF NOT EXISTS network_samples (
     detail      JSONB NOT NULL DEFAULT '{}'::jsonb
 );
 CREATE INDEX IF NOT EXISTS idx_network_samples_ts ON network_samples(ts DESC);
+
+-- Task intelligence is separate from shared asset authentication and graph compaction.
+CREATE TABLE IF NOT EXISTS task_intelligence (
+    id BIGSERIAL PRIMARY KEY,
+    task_id BIGINT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+    node_id BIGINT REFERENCES exploration_nodes(id) ON DELETE SET NULL,
+    kind TEXT NOT NULL CHECK (kind IN ('credential','lead','sensitive_data')),
+    title TEXT NOT NULL,
+    content TEXT NOT NULL,
+    evidence TEXT NOT NULL DEFAULT '',
+    confidence TEXT NOT NULL CHECK (confidence IN ('observed','inferred')),
+    status TEXT NOT NULL,
+    asset_ids JSONB NOT NULL DEFAULT '[]',
+    worker TEXT NOT NULL DEFAULT '',
+    fingerprint TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE(task_id,kind,fingerprint)
+);
+CREATE INDEX IF NOT EXISTS idx_task_intelligence_task ON task_intelligence(task_id,id DESC);
+CREATE INDEX IF NOT EXISTS idx_task_intelligence_assets ON task_intelligence USING gin(asset_ids);
+
+-- Optional derived credential presentation; raw intelligence remains authoritative.
+ALTER TABLE task_intelligence ADD COLUMN IF NOT EXISTS credential_analysis JSONB;

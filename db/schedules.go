@@ -14,6 +14,7 @@ import (
 type TaskSchedule struct {
 	ID               int64      `json:"id"`
 	Name             string     `json:"name"`
+	Remark           string     `json:"remark"`
 	Enabled          bool       `json:"enabled"`
 	TimezoneMode     string     `json:"timezone_mode"`
 	ScheduleType     string     `json:"schedule_type"`
@@ -46,7 +47,7 @@ type TaskScheduleInput struct {
 	TaskIDs          []int64
 }
 
-const scheduleCols = `id,name,enabled,timezone_mode,schedule_type,
+const scheduleCols = `id,name,remark,enabled,timezone_mode,schedule_type,
 COALESCE(to_char(run_date,'YYYY-MM-DD'),''),weekdays,to_char(start_time,'HH24:MI:SS'),
 COALESCE(to_char(end_date,'YYYY-MM-DD'),''),
 COALESCE(to_char(end_time,'HH24:MI:SS'),''),start_immediately,status,last_window_key,
@@ -63,7 +64,7 @@ func marshalWeekdays(days []int) string {
 func scanSchedule(sc interface{ Scan(...any) error }) (*TaskSchedule, error) {
 	var s TaskSchedule
 	var rawDays string
-	if err := sc.Scan(&s.ID, &s.Name, &s.Enabled, &s.TimezoneMode, &s.ScheduleType,
+	if err := sc.Scan(&s.ID, &s.Name, &s.Remark, &s.Enabled, &s.TimezoneMode, &s.ScheduleType,
 		&s.RunDate, &rawDays, &s.StartTime, &s.EndDate, &s.EndTime, &s.StartImmediately,
 		&s.Status, &s.LastWindowKey, &s.LastTransitionAt, &s.LastError,
 		&s.CreatedAt, &s.UpdatedAt); err != nil {
@@ -402,4 +403,30 @@ func (d *DB) ListScheduleHistory(id int64) ([]ScheduleHistory, error) {
 		items = append(items, item)
 	}
 	return items, rows.Err()
+}
+
+// TaskSchedulePatch changes list metadata without resetting execution windows.
+type TaskSchedulePatch struct {
+	Name   *string
+	Remark *string
+}
+
+// UpdateTaskScheduleRemark leaves calendar state and task bindings untouched.
+func (d *DB) UpdateTaskScheduleRemark(id int64, remark string) (*TaskSchedule, error) {
+	return d.UpdateTaskScheduleMetadata(id, TaskSchedulePatch{Remark: &remark})
+}
+
+func (d *DB) UpdateTaskScheduleMetadata(id int64, patch TaskSchedulePatch) (*TaskSchedule, error) {
+	item, err := scanSchedule(d.QueryRow(`UPDATE task_schedules SET
+      name=CASE WHEN $2::boolean THEN $3 ELSE name END,
+      remark=CASE WHEN $4::boolean THEN $5 ELSE remark END
+      WHERE id=$1 RETURNING `+scheduleCols, id, patch.Name != nil, patch.Name, patch.Remark != nil, patch.Remark))
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	item.TaskIDs, err = d.scheduleTaskIDs(id)
+	return item, err
 }

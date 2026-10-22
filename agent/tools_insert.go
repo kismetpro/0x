@@ -200,7 +200,7 @@ func (t *ToolSet) insertAssets() actool.CoreTool {
 				}, "type"),
 			},
 		}, "assets"),
-		func(_ context.Context, in json.RawMessage) (actool.Result, error) {
+		func(ctx context.Context, in json.RawMessage) (actool.Result, error) {
 			if t.as == nil {
 				return actool.Errorf("insert_assets 未启用: AssetStore 未初始化"), nil
 			}
@@ -336,6 +336,15 @@ func (t *ToolSet) insertAssets() actool.CoreTool {
 				if err != nil {
 					errs = append(errs, errEntry{Index: i, Error: err.Error()})
 					continue
+				}
+				if intelligenceEnabled() && typ == "service" && taskID > 0 {
+					for _, auth := range item.Auth {
+						raw, _ := json.Marshal(auth)
+						input := db.IntelligenceInput{Kind: "credential", Title: fmt.Sprintf("服务 #%d 的认证信息", id), Content: string(raw), Evidence: fmt.Sprintf("insert_assets 上报，服务资产 #%d，来源意图 #%d", id, t.ownerNode), Confidence: "observed", Status: "unverified", AssetIDs: []int64{id}}
+						if _, err := t.saveIntelligence(ctx, 0, input); err != nil {
+							errs = append(errs, errEntry{Index: i, Error: "资产已保存，凭据情报未保存：" + err.Error()})
+						}
+					}
 				}
 				results = append(results, result{Index: i, ID: id, Type: typ})
 				t.writes.Assets++
@@ -645,7 +654,7 @@ func (t *ToolSet) WorkerTools() []actool.CoreTool {
 	return []actool.CoreTool{
 		// list_findings 保留：报漏洞前先查本任务已确认漏洞，避免重复上报同一漏洞。
 		t.listFindings(),
-		t.addFinding(), t.recordFact(),
+		t.addFinding(), t.recordFact(), t.recordIntelligence(),
 		// asset management (handlers guard nil store internally)。
 		// add_company_scope 不给 worker：定义企业资产范围属规划/主控/Auto 的职责，worker 只执行探索。
 		t.insertAssets(), t.listAssets(),
@@ -674,7 +683,7 @@ func (t *ToolSet) MainAgentTools() []actool.CoreTool {
 		t.setConstraints(),
 		// asset management (handlers guard nil store internally)
 		t.insertAssets(), t.addCompanyScope(), t.listAssets(),
-		t.addFinding(), t.recordFact(),
+		t.addFinding(), t.recordFact(), t.recordIntelligence(),
 		t.addTaskScope(),
 		// list_untested_assets：按需查本任务范围内未测资产(类型+分页)，自行决定补测。
 		t.listUntestedAssets(),
