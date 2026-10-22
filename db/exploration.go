@@ -1160,6 +1160,15 @@ WHERE exploration_id=$1 AND kind='intent' AND state IN ('open','running'))`, s.e
 	return exists, err
 }
 
+// ActiveIntentCount returns how many intents are still queued or executing.
+// Goal proof must not complete and cancel a task while this count is non-zero.
+func (s *ExplorationStore) ActiveIntentCount() (int, error) {
+	var count int
+	err := s.db.QueryRow(`SELECT count(*) FROM exploration_nodes
+WHERE exploration_id=$1 AND kind='intent' AND state IN ('open','running')`, s.expID).Scan(&count)
+	return count, err
+}
+
 // HasOpenGoal reports whether this exploration still has any goal in state 'open'.
 // false ⇒ 所有目标已 met/abandoned（或本任务无目标）⇒ 进入 goalless（人工直投）分支：
 // planner 停跑，任务是否结束改由 frontier 是否抽干决定。met 与 abandoned 都算"已了结"。

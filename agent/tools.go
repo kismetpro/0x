@@ -1161,12 +1161,12 @@ func (t *ToolSet) listGoals() actool.CoreTool {
 }
 
 func (t *ToolSet) proveGoal() actool.CoreTool {
-	return t.writeExpTool("prove_goal", "当你判断某个发现/事实证明了某个目标达成时调用：把证据节点连到目标节点，并标记目标 met。",
+	return t.writeExpTool("prove_goal", "当你判断某个已确认的发现/事实真正满足某个目标的验收条件时调用：把证据节点连到目标节点并标记 met。reason 必须具体说明证据如何满足验收条件，占位文本会被拒绝。如果这次调用会让所有目标变成 met，但仍有 open/running 意图，本工具会拒绝标记并保持目标 open，避免一次 prove_goal 取消仍在推进的工作。",
 		obj(map[string]any{
 			"goal_id":     idp("目标节点 id"),
 			"evidence_id": idp("证明它的发现/事实节点 id"),
-			"reason":      str("为什么这个证据满足该目标"),
-		}, "goal_id", "evidence_id"),
+			"reason":      str("为什么这个证据满足该目标的验收条件（至少20字符，禁止 placeholder/测试文本）"),
+		}, "goal_id", "evidence_id", "reason"),
 		func(_ context.Context, in json.RawMessage) (actool.Result, error) {
 			var a struct {
 				GoalID     json.RawMessage `json:"goal_id"`
@@ -1178,6 +1178,9 @@ func (t *ToolSet) proveGoal() actool.CoreTool {
 			if goal == 0 || ev == 0 {
 				return actool.Errorf("goal_id 和 evidence_id 必填"), nil
 			}
+			if msg := goalProofReasonError(a.Reason); msg != "" {
+				return actool.Errorf(msg), nil
+			}
 			goalNode, err := t.ts.GetNode(goal)
 			if err != nil || goalNode == nil || goalNode.Kind != db.KindGoal {
 				return actool.Errorf("goal_id 必须是本任务的目标节点（关联任务目标只读）"), nil
@@ -1186,23 +1189,45 @@ func (t *ToolSet) proveGoal() actool.CoreTool {
 			if err != nil || evidenceNode == nil || (evidenceNode.Kind != db.KindFact && evidenceNode.Kind != db.KindFinding) {
 				return actool.Errorf("evidence_id 必须是本任务或直接关联任务的事实/漏洞节点"), nil
 			}
-			_ = t.ts.Link(ev, db.RelProves, goal)
-			_ = t.ts.SetNodeState(goal, "met")
-			// 每标记一个目标 met，就检查本任务是否【所有目标】都已 met；若是，自动判定
-			// 任务完成（置 GoalMet），无需再依赖模型显式调 goal_met。
-			if goals, err := t.ts.ListByKind(db.KindGoal, 1000); err == nil && len(goals) > 0 {
-				allMet := true
-				for _, g := range goals {
-					if g.State != "met" {
-						allMet = false
-						break
-					}
+			if evidenceNode.Inherited {
+				return actool.Errorf("evidence_id 不能使用继承自其他任务的证据；请在当前任务内重新验证并记录证据"), nil
+			}
+			if evidenceNode.State != "confirmed" {
+				return actool.Errorf("evidence_id 必须处于 confirmed 状态，当前为 " + evidenceNode.State), nil
+			}
+			goals, err := t.ts.ListByKind(db.KindGoal, 1000)
+			if err != nil {
+				return actool.Errorf(fmt.Sprintf("读取目标状态失败: %v", err)), nil
+			}
+			allMetAfterProof := len(goals) > 0
+			for _, candidate := range goals {
+				if candidate.ID != goal && candidate.State != "met" {
+					allMetAfterProof = false
+					break
 				}
-				if allMet {
-					t.GoalMet = true
-					t.Reason = fmt.Sprintf("所有 %d 个目标均已 met（最后由 goal %d 触发）", len(goals), goal)
-					return actool.Text(fmt.Sprintf("goal %d marked met；本任务所有目标均已达成，任务自动判定完成", goal)), nil
+			}
+			if allMetAfterProof {
+				active, countErr := t.ts.ActiveIntentCount()
+				if countErr != nil {
+					return actool.Errorf(fmt.Sprintf("完成安全检查失败: %v", countErr)), nil
 				}
+				if active > 0 {
+					return actool.Text(fmt.Sprintf(
+						"goal %d 未标记：该证明会让所有目标变为 met，但仍有 %d 个 open/running 意图。目标保持 open；待剩余意图结束并重新核对验收条件后再 prove_goal。",
+						goal, active,
+					)), nil
+				}
+			}
+			if err := t.ts.Link(ev, db.RelProves, goal); err != nil {
+				return actool.Errorf(fmt.Sprintf("写入目标证据失败: %v", err)), nil
+			}
+			if err := t.ts.SetNodeState(goal, "met"); err != nil {
+				return actool.Errorf(fmt.Sprintf("更新目标状态失败: %v", err)), nil
+			}
+			if allMetAfterProof {
+				t.GoalMet = true
+				t.Reason = fmt.Sprintf("所有 %d 个目标均已 met（最后由 goal %d 触发，且无 open/running 意图）", len(goals), goal)
+				return actool.Text(fmt.Sprintf("goal %d marked met；所有目标均已达成且无剩余意图，任务自动判定完成", goal)), nil
 			}
 			return actool.Text(fmt.Sprintf("goal %d marked met", goal)), nil
 		})
