@@ -1560,9 +1560,19 @@ CREATE TABLE IF NOT EXISTS network_samples (
     icmp_ok     BOOLEAN NOT NULL,
     gateway_ok  BOOLEAN NOT NULL,
     latency_ms  INTEGER NOT NULL DEFAULT 0,
+    public_ip   TEXT NOT NULL DEFAULT '',
+    ip_location TEXT NOT NULL DEFAULT '',
+    ip_country_code TEXT NOT NULL DEFAULT '',
+    ip_isp      TEXT NOT NULL DEFAULT '',
+    ip_checked_at TIMESTAMPTZ,
     detail      JSONB NOT NULL DEFAULT '{}'::jsonb
 );
 CREATE INDEX IF NOT EXISTS idx_network_samples_ts ON network_samples(ts DESC);
+ALTER TABLE network_samples ADD COLUMN IF NOT EXISTS public_ip TEXT NOT NULL DEFAULT '';
+ALTER TABLE network_samples ADD COLUMN IF NOT EXISTS ip_location TEXT NOT NULL DEFAULT '';
+ALTER TABLE network_samples ADD COLUMN IF NOT EXISTS ip_country_code TEXT NOT NULL DEFAULT '';
+ALTER TABLE network_samples ADD COLUMN IF NOT EXISTS ip_isp TEXT NOT NULL DEFAULT '';
+ALTER TABLE network_samples ADD COLUMN IF NOT EXISTS ip_checked_at TIMESTAMPTZ;
 
 -- Task intelligence is separate from shared asset authentication and graph compaction.
 CREATE TABLE IF NOT EXISTS task_intelligence (

@@ -1616,6 +1616,11 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
         icmp_ok: true,
         gateway_ok: true,
         latency_ms: 38,
+        public_ip: "203.0.113.42",
+        ip_location: "中国 · 北京 · 海淀",
+        ip_country_code: "CN",
+        ip_isp: "示例网络运营商",
+        ip_checked_at: now.toISOString(),
         detail: {
           dns: { ok: true, ms: 18 },
           tcp: { ok: true, ms: 24 },
@@ -1628,7 +1633,7 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
       since: new Date(now.getTime() - 2 * 60 * 60 * 1000).toISOString(),
       outages: [lastOutage],
       last_outage: lastOutage,
-      monitor: { interval_seconds: 10, retention_days: 30 },
+      monitor: { interval_seconds: 10, retention_days: 30, ip_refresh_seconds: 300 },
     };
   }
   if (path === "/network/history") {
@@ -1649,7 +1654,12 @@ function route(m: string, path: string, seg: string[], q: URLSearchParams, b: Re
         latency_ms: 28 + ((minutesAgo * 7) % 40),
       });
     }
-    return { buckets, outages: [outage], hours, monitor: { interval_seconds: 10, retention_days: 30 } };
+    return {
+      buckets,
+      outages: [outage],
+      hours,
+      monitor: { interval_seconds: 10, retention_days: 30, ip_refresh_seconds: 300 },
+    };
   }
 
   // ── 按模型 token 用量（demo：一条示例）──

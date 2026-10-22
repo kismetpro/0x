@@ -1,18 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="0x">
   <title>0x</title>
-  <!-- Hexadecimal is 0x, so the mark is the literal itself cut out of a hexagon. -->
-  <defs>
-    <mask id="ox" maskUnits="userSpaceOnUse" x="0" y="0" width="512" height="512">
-      <path fill="#fff" d="M256 8 496 146 496 366 256 504 16 366 16 146Z"/>
-      <!-- 0: ring drawn as outer ellipse, then inner ellipse punched back out -->
-      <ellipse cx="170" cy="256" rx="72" ry="88" fill="#000"/>
-      <ellipse cx="170" cy="256" rx="34" ry="50" fill="#fff"/>
-      <!-- x: two diagonal bars -->
-      <g fill="#000">
-        <rect x="312" y="158" width="36" height="196" rx="8" transform="rotate(45 330 256)"/>
-        <rect x="312" y="158" width="36" height="196" rx="8" transform="rotate(-45 330 256)"/>
-      </g>
-    </mask>
-  </defs>
-  <rect width="512" height="512" fill="#2E6BFF" mask="url(#ox)"/>
+  <circle cx="256" cy="256" r="240" fill="#2E6BFF"/>
+  <circle cx="256" cy="256" r="210" fill="none" stroke="#fff" stroke-opacity=".18" stroke-width="8"
+          stroke-linecap="round" stroke-dasharray="3 22"/>
+  <circle cx="174" cy="256" r="58" fill="none" stroke="#fff" stroke-width="38"/>
+  <path d="M318 211 397 302M397 211 318 302" fill="none" stroke="#fff" stroke-width="38"
+        stroke-linecap="round"/>
+  <circle cx="416" cy="99" r="14" fill="#fff" fill-opacity=".92"/>
 </svg>

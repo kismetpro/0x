@@ -136,7 +136,8 @@ func (s *Server) networkHistory(w http.ResponseWriter, r *http.Request) {
 
 func networkMonitorInfo() map[string]any {
 	return map[string]any{
-		"interval_seconds": int(networkMonitorInterval.Seconds()),
-		"retention_days":   int(networkRetention.Hours() / 24),
+		"interval_seconds":   int(networkMonitorInterval.Seconds()),
+		"retention_days":     int(networkRetention.Hours() / 24),
+		"ip_refresh_seconds": int(networkIPRefresh.Seconds()),
 	}
 }

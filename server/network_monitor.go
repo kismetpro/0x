@@ -64,16 +64,52 @@ func (m *networkMonitor) Run(ctx context.Context) {
 
 	lastState := ""
 	lastPrune := time.Time{}
+	lastIPAttempt := time.Time{}
+	lastIPSuccess := time.Time{}
+	ipInfo := publicIPInfo{}
 	for {
 		sample := probeNetwork(ctx)
+		if sample.State == "offline" {
+			ipInfo = publicIPInfo{}
+			lastIPAttempt = time.Time{}
+			lastIPSuccess = time.Time{}
+		} else {
+			ipDue := false
+			if ipInfo.IP == "" {
+				ipDue = lastIPAttempt.IsZero() || time.Since(lastIPAttempt) >= time.Minute
+			} else {
+				ipDue = time.Since(lastIPSuccess) >= networkIPRefresh
+			}
+			if ipDue {
+				lastIPAttempt = time.Now()
+				next, err := probePublicIP(ctx)
+				if err != nil {
+					if ctx.Err() == nil {
+						log.Printf("[netmon] public IP lookup: %v", err)
+					}
+				} else {
+					ipInfo = next
+					lastIPSuccess = time.Now()
+					log.Printf("[netmon] public IP %s · %s · %s", ipInfo.IP, ipInfo.Location, orDash(ipInfo.ISP))
+				}
+			}
+		}
+		sample.PublicIP = ipInfo.IP
+		sample.IPLocation = ipInfo.Location
+		sample.IPCountryCode = ipInfo.CountryCode
+		sample.IPISP = ipInfo.ISP
+		if !ipInfo.CheckedAt.IsZero() {
+			checkedAt := ipInfo.CheckedAt
+			sample.IPCheckedAt = &checkedAt
+		}
 		if err := m.pg.InsertNetworkSample(ctx, sample); err != nil {
 			if ctx.Err() == nil {
 				log.Printf("[netmon] insert sample: %v", err)
 			}
 		} else if sample.State != lastState {
-			log.Printf("[netmon] state %s → %s (dns=%v tcp=%v http=%v icmp=%v gw=%v latency=%dms)",
+			log.Printf("[netmon] state %s → %s (dns=%v tcp=%v http=%v icmp=%v gw=%v latency=%dms ip=%s)",
 				orDash(lastState), sample.State, sample.DNSOK, sample.TCPOK, sample.HTTPOK,
-				sample.ICMPOK, sample.GatewayOK, sample.LatencyMS)
+				sample.ICMPOK, sample.GatewayOK, sample.LatencyMS, orDash(sample.PublicIP))
 			lastState = sample.State
 		}
 		if time.Since(lastPrune) >= time.Hour {

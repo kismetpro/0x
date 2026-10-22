@@ -17,10 +17,15 @@ func TestNetworkHistoryAndTransitions(t *testing.T) {
 	ctx := context.Background()
 
 	base := time.Now().UTC().Add(-5 * time.Hour).Truncate(time.Minute)
+	checkedAt := base.Add(time.Minute + 5*time.Second)
 	samples := []NetworkSample{
 		{TS: base.Add(5 * time.Second), State: "online", DNSOK: true, TCPOK: true, HTTPOK: true},
 		{TS: base.Add(20 * time.Second), State: "offline", Detail: json.RawMessage(`{"dns":{"ok":false}}`)},
-		{TS: base.Add(time.Minute + 10*time.Second), State: "degraded", DNSOK: true},
+		{
+			TS: base.Add(time.Minute + 10*time.Second), State: "degraded", DNSOK: true,
+			PublicIP: "203.0.113.42", IPLocation: "测试地区 · 测试城市",
+			IPCountryCode: "ZZ", IPISP: "Test ISP", IPCheckedAt: &checkedAt,
+		},
 	}
 	for _, sample := range samples {
 		if err := d.InsertNetworkSample(ctx, sample); err != nil {
@@ -45,6 +50,15 @@ func TestNetworkHistoryAndTransitions(t *testing.T) {
 	}
 	if got[base.Add(time.Minute)] != "degraded" {
 		t.Fatalf("degraded minute mismatch: %v", got[base.Add(time.Minute)])
+	}
+	latest, err := d.LatestNetworkSample(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if latest == nil || latest.PublicIP != "203.0.113.42" || latest.IPLocation != "测试地区 · 测试城市" ||
+		latest.IPCountryCode != "ZZ" || latest.IPISP != "Test ISP" || latest.IPCheckedAt == nil ||
+		!latest.IPCheckedAt.Equal(checkedAt) {
+		t.Fatalf("latest public IP metadata mismatch: %#v", latest)
 	}
 
 	transitions, err := d.NetworkTransitions(ctx, 24)

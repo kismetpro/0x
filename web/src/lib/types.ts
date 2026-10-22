@@ -910,6 +910,11 @@ export interface NetworkSample {
   icmp_ok: boolean;
   gateway_ok: boolean;
   latency_ms: number;
+  public_ip: string;
+  ip_location: string;
+  ip_country_code: string;
+  ip_isp: string;
+  ip_checked_at?: string;
   detail?: NetworkSampleDetail;
 }
 
@@ -923,6 +928,7 @@ export interface NetworkOutage {
 export interface NetworkMonitorInfo {
   interval_seconds: number;
   retention_days: number;
+  ip_refresh_seconds: number;
 }
 
 export interface NetworkStatus {

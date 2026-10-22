@@ -9,6 +9,8 @@ import {
   ArrowUpRightIcon,
   BugIcon,
   ClockIcon,
+  Globe2Icon,
+  MapPinIcon,
   NetworkIcon,
   ShieldCheckIcon,
   TargetIcon,
@@ -72,20 +74,21 @@ function fmtTokens(n: number): string {
   return String(n);
 }
 
-function parseTime(ts?: string | number): Date | null {
+function parseTime(ts?: string | number | Date): Date | null {
   if (ts === undefined || ts === null || ts === "") return null;
+  if (ts instanceof Date) return Number.isNaN(ts.getTime()) ? null : ts;
   const d = new Date(typeof ts === "number" && Math.abs(ts) < 1_000_000_000_000 ? ts * 1000 : ts);
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-function fmtClock(ts?: string | number): string {
+function fmtClock(ts?: string | number | Date): string {
   const d = parseTime(ts);
   if (!d) return "—";
   const pad = (n: number) => String(n).padStart(2, "0");
   return `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
-function fmtClockShort(ts?: string | number): string {
+function fmtClockShort(ts?: string | number | Date): string {
   const d = parseTime(ts);
   if (!d) return "—";
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
@@ -586,6 +589,7 @@ export default function DashboardPage() {
 
   const networkSample = networkStatus?.sample ?? null;
   const networkInterval = networkStatus?.monitor?.interval_seconds ?? 10;
+  const networkIPRefreshSeconds = networkStatus?.monitor?.ip_refresh_seconds ?? 300;
   const networkSampleTime = parseTime(networkSample?.ts);
   const networkSampleAge = networkSampleTime
     ? Math.max(0, Math.floor((Date.now() - networkSampleTime.getTime()) / 1000))
@@ -595,6 +599,10 @@ export default function DashboardPage() {
   if (networkSample) networkVisualState = networkStale ? "stale" : networkSample.state;
   const networkMeta = networkMetaFor(networkVisualState);
   const NetworkStatusIcon = networkMeta.icon;
+  const publicIP = networkSample?.public_ip?.trim() ?? "";
+  const publicIPLocation = networkSample?.ip_location?.trim() ?? "";
+  const publicIPISP = networkSample?.ip_isp?.trim() ?? "";
+  const publicIPCheckedAt = parseTime(networkSample?.ip_checked_at);
   const networkChecks = [
     {
       label: "DNS",
@@ -999,7 +1007,8 @@ export default function DashboardPage() {
               {networkMeta.label}
             </Badge>
             <span className="text-[10px] text-muted-foreground">
-              每 {networkInterval} 秒采样 · 保留 {networkStatus?.monitor?.retention_days ?? 30} 天 · 本地时间
+              每 {networkInterval} 秒采样 · IP 每 {Math.max(1, Math.round(networkIPRefreshSeconds / 60))} 分钟刷新 ·
+              保留 {networkStatus?.monitor?.retention_days ?? 30} 天
             </span>
           </div>
           <div className="flex items-center gap-1.5 text-[10px] tabular-nums text-muted-foreground">
@@ -1028,7 +1037,7 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 p-4 lg:grid-cols-[290px_1fr]">
+        <div className="grid grid-cols-1 gap-4 p-4 lg:grid-cols-[310px_1fr]">
           <div className="flex flex-col gap-2.5">
             <div className={cn("rounded-xl border p-3", networkMeta.badge)}>
               <div className="flex items-center gap-3">
@@ -1057,35 +1066,33 @@ export default function DashboardPage() {
               )}
             </div>
 
-            <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-3 lg:grid-cols-2">
-              {networkChecks.map((check) => (
-                <div
-                  key={check.label}
-                  title={check.err || `${check.label} ${check.ok === null ? "等待采样" : check.ok ? "通过" : "失败"}`}
-                  className="flex min-w-0 items-center gap-1.5 rounded-md border bg-muted/15 px-2 py-1.5 text-[10px]"
-                >
-                  <span
-                    className={cn(
-                      "size-1.5 shrink-0 rounded-full",
-                      check.ok === null ? "bg-muted-foreground/30" : check.ok ? "bg-emerald-400" : "bg-red-500",
-                    )}
-                  />
-                  <span className="min-w-0 flex-1 truncate text-muted-foreground">{check.label}</span>
-                  <span
-                    className={cn(
-                      "shrink-0 font-mono tabular-nums",
-                      check.ok === null ? "text-muted-foreground/60" : check.ok ? "text-emerald-400" : "text-red-400",
-                    )}
-                  >
-                    {check.ok === null ? "—" : check.ok ? `${check.ms ?? 0}ms` : "失败"}
-                  </span>
+            <div className="rounded-xl border bg-muted/15 p-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5 text-[10px] font-medium text-muted-foreground">
+                  <Globe2Icon className="size-3.5" />
+                  当前公网 IP
                 </div>
-              ))}
-            </div>
-
-            <div className="flex items-center justify-between px-0.5 text-[9px] text-muted-foreground">
-              <span>外部状态由 DNS / TCP / HTTP 判定</span>
-              <span>{networkSample?.detail?.external_ok ?? 0}/3 通过</span>
+                <span className="text-[9px] tabular-nums text-muted-foreground">
+                  {publicIPCheckedAt ? `更新于 ${fmtClockShort(publicIPCheckedAt)}` : "等待查询"}
+                </span>
+              </div>
+              <div className="mt-1.5 font-mono text-sm font-semibold tracking-tight break-all">{publicIP || "—"}</div>
+              <div
+                className="mt-1.5 flex items-start gap-1 text-[10px] text-muted-foreground"
+                title="归属地由第三方公共 IP 库估算，可能不完全精确"
+              >
+                <MapPinIcon className="mt-0.5 size-3 shrink-0" />
+                <span className="min-w-0 flex-1">
+                  {publicIPLocation ||
+                    (networkVisualState === "offline" ? "网络中断，恢复后自动刷新" : "归属地暂不可用")}
+                </span>
+              </div>
+              <div className="mt-1 flex items-center gap-1.5 text-[9px] text-muted-foreground">
+                <span className="rounded border bg-background/50 px-1 py-0.5 font-mono">
+                  {networkSample?.ip_country_code || "--"}
+                </span>
+                <span className="truncate">{publicIPISP || "运营商未知"}</span>
+              </div>
             </div>
           </div>
 
@@ -1167,6 +1174,36 @@ export default function DashboardPage() {
               ) : (
                 <span className="text-[9px] text-muted-foreground">加载中…</span>
               )}
+            </div>
+
+            <div className="mt-2 grid grid-cols-2 gap-1.5 border-t pt-2 sm:grid-cols-3 lg:grid-cols-5">
+              {networkChecks.map((check) => (
+                <div
+                  key={check.label}
+                  title={check.err || `${check.label} ${check.ok === null ? "等待采样" : check.ok ? "通过" : "失败"}`}
+                  className="flex min-w-0 items-center gap-1.5 rounded-md border bg-muted/15 px-2 py-1.5 text-[10px]"
+                >
+                  <span
+                    className={cn(
+                      "size-1.5 shrink-0 rounded-full",
+                      check.ok === null ? "bg-muted-foreground/30" : check.ok ? "bg-emerald-400" : "bg-red-500",
+                    )}
+                  />
+                  <span className="min-w-0 flex-1 truncate text-muted-foreground">{check.label}</span>
+                  <span
+                    className={cn(
+                      "shrink-0 font-mono tabular-nums",
+                      check.ok === null ? "text-muted-foreground/60" : check.ok ? "text-emerald-400" : "text-red-400",
+                    )}
+                  >
+                    {check.ok === null ? "—" : check.ok ? `${check.ms ?? 0}ms` : "失败"}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div className="mt-1.5 flex items-center justify-between px-0.5 text-[9px] text-muted-foreground">
+              <span>外部状态由 DNS / TCP / HTTP 判定</span>
+              <span>{networkSample?.detail?.external_ok ?? 0}/3 通过</span>
             </div>
           </div>
         </div>
