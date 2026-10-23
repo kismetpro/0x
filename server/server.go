@@ -3457,6 +3457,8 @@ func (s *Server) settingsPayload() map[string]any {
 		"task_concurrency_enabled":  concOn,                      // 任务并发上限开关(默认关)
 		"task_concurrency_limit":    concLimit,                   // 同时运行任务上限(开启后默认5)
 		"task_round_robin":          s.m.pg.GetBool(settingTaskRoundRobin, false),
+		// 漏洞重复确认默认开启：Agent 只能提交疑似重复建议，由发现页人工决定。
+		settingFindingDuplicateConfirmation: s.findingDuplicateConfirmationEnabled(),
 		// LLM 轮询(故障转移)。默认关；开启后走全局激活配置的 agent 在当前配置不可用时
 		// 自动切到下一个配置。bind_fallback 仅在轮询开启时有意义(默认关)。
 		"llm_pool_enabled":       s.m.LLMPoolEnabled(),
@@ -3534,6 +3536,8 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		ConcurrencyEnabled *bool `json:"task_concurrency_enabled"`
 		ConcurrencyLimit   *int  `json:"task_concurrency_limit"`
 		TaskRoundRobin     *bool `json:"task_round_robin"`
+		// 漏洞重复确认默认开启；关闭后 Agent 跳过重复判断，所有漏洞按独立记录处理。
+		FindingDuplicateConfirmation *bool `json:"finding_duplicate_confirmation_enabled"`
 		// LLM 轮询(故障转移)开关 + 「绑定配置失败也兜底回轮询链」开关。两者都需要
 		// 重建 provider 链才生效，走下面的 changed → applyLLM 路径。
 		LLMPoolEnabled      *bool `json:"llm_pool_enabled"`
@@ -3553,6 +3557,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, err.Error())
 		return
 	}
+	changed := false
 	if req.ConstraintsInjectPlanner != nil {
 		if err := s.m.pg.SetBool(settingConstraintsInjectPlanner, *req.ConstraintsInjectPlanner); err != nil {
 			writeErr(w, 500, err.Error())
@@ -3617,6 +3622,15 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		// 立即协调一次:关闭时放行全部排队,调高上限时补位启动,不必等下一个 tick。
 		go s.reconcileConcurrency()
 	}
+	if req.FindingDuplicateConfirmation != nil {
+		if err := s.m.pg.SetBool(settingFindingDuplicateConfirmation, *req.FindingDuplicateConfirmation); err != nil {
+			writeErr(w, 500, err.Error())
+			return
+		}
+		// Prompt/tool availability is assembled from this setting. Rebuilding is
+		// best-effort: server-side checks still enforce the switch for live sessions.
+		changed = true
+	}
 	if req.PythonInterp != nil {
 		if err := s.m.pg.SetSetting(settingPythonInterp, strings.TrimSpace(*req.PythonInterp)); err != nil {
 			writeErr(w, 500, err.Error())
@@ -3630,7 +3644,6 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	changed := false
 	if req.LLMPoolEnabled != nil {
 		if err := s.m.SetLLMPoolEnabled(*req.LLMPoolEnabled); err != nil {
 			writeErr(w, 500, err.Error())

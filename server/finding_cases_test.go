@@ -49,11 +49,11 @@ func TestFindingCaseAPIPaginationAndTools(t *testing.T) {
 	for _, id := range ids {
 		a.IDs = append(a.IDs, json.RawMessage(fmt.Sprint(id)))
 	}
-	result, err := s.performFindingCaseTool(ctx, "merge_finding_records", a)
+	caseID, err := s.m.pg.MergeFindingCase(ctx, task, ids, a.Title, a.Reason, "human")
 	if err != nil {
 		t.Fatal(err)
 	}
-	cid := result.(map[string]string)["case_id"]
+	cid := i64s(caseID)
 	r := httptest.NewRequest("GET", fmt.Sprintf("/api/exploration/finding-cases?task_id=%d&severity=low&page=1&limit=1", task), nil)
 	w := httptest.NewRecorder()
 	s.listFindingCases(w, r)
@@ -81,7 +81,7 @@ func TestFindingCaseAPIPaginationAndTools(t *testing.T) {
 		t.Fatal(w.Code, w.Body)
 	}
 	a.CaseID = json.RawMessage(cid)
-	result, err = s.performFindingCaseTool(ctx, "get_finding_case", a)
+	result, err := s.performFindingCaseTool(ctx, "get_finding_case", a)
 	if err != nil {
 		t.Fatal(err)
 	}

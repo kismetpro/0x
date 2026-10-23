@@ -71,7 +71,7 @@ func AugmentTools(ctx context.Context, agentKey string, base []actool.CoreTool) 
 	out, def.IntelligenceGuidance = intelligenceWorkflow(ctx, out)
 	if agentKey == "reporter" && isFindingCaseReview(ctx) {
 		def.FindingGuidance = ""
-		def.CaseGuidance += historicalFindingReviewGuidance
+		def.CaseGuidance += historicalFindingReviewGuidance(findingDuplicateConfirmationEnabled())
 	}
 	for i, t := range out {
 		out[i] = guardPanic(t)

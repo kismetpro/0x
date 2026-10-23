@@ -1053,6 +1053,9 @@ export interface Settings {
   task_concurrency_enabled?: boolean; // 默认 false
   task_concurrency_limit?: number; // 开启后默认 5
   task_round_robin?: boolean; // 一批子代理自然结束后自动排到队尾，非手动暂停
+  // 漏洞重复确认默认开启。开启后 Agent 只提交待确认建议，由发现页人工决定；
+  // 关闭后跳过重复判断，所有新上报按独立漏洞处理。
+  finding_duplicate_confirmation_enabled?: boolean;
   // LLM 轮询(故障转移)。默认关；开启后「未指定模型」的 agent 在当前配置不可用
   // （余额不足/key 失效/限流/服务异常）时自动切到下一个配置。
   llm_pool_enabled?: boolean; // 默认 false

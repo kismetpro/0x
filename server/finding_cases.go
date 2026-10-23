@@ -28,6 +28,17 @@ type findingCaseRequest struct {
 	Page           int               `json:"page"`
 }
 
+const settingFindingDuplicateConfirmation = "finding_duplicate_confirmation_enabled"
+
+// findingDuplicateConfirmationEnabled controls whether suspected duplicates
+// need an explicit human decision. Missing settings default to enabled.
+func (s *Server) findingDuplicateConfirmationEnabled() bool {
+	if s == nil || s.m == nil || s.m.pg == nil {
+		return true
+	}
+	return s.m.pg.GetBool(settingFindingDuplicateConfirmation, true)
+}
+
 func (a findingCaseRequest) ids() []int64 {
 	out := []int64{}
 	for _, raw := range a.IDs {
@@ -194,6 +205,10 @@ func (s *Server) removeFindingCaseMember(w http.ResponseWriter, r *http.Request)
 	writeJSON(w, 200, map[string]bool{"ok": true})
 }
 func (s *Server) caseSuggestions(w http.ResponseWriter, r *http.Request) {
+	if !s.findingDuplicateConfirmationEnabled() {
+		writeJSON(w, 200, []db.FindingCaseSuggestion{})
+		return
+	}
 	items, err := s.m.pg.FindingCaseSuggestions(int64(atoiDefault(r.URL.Query().Get("task_id"), 0)))
 	if err != nil {
 		caseHTTPError(w, err)
@@ -202,6 +217,10 @@ func (s *Server) caseSuggestions(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, items)
 }
 func (s *Server) resolveCaseSuggestion(w http.ResponseWriter, r *http.Request) {
+	if !s.findingDuplicateConfirmationEnabled() {
+		writeErr(w, 409, "漏洞重复确认已在系统配置中关闭；待确认建议已隐藏，重新开启后才能处理")
+		return
+	}
 	var a struct {
 		Accept bool `json:"accept"`
 	}
@@ -255,8 +274,8 @@ func (s *Server) findingCaseTools() []actool.CoreTool {
 	}{
 		{"search_finding_duplicates", "只读检索同任务候选，返回摘要与资产；等级不同也可能重复。支持分页，按需读取详情。", []string{"finding_id"}},
 		{"get_finding_record", "读取独立漏洞完整原始证据和报告，返回探索节点编号以便追溯执行记录。", []string{"finding_id"}},
-		{"merge_finding_records", "证据明确证明同一缺陷时归并；保留所有原始记录。不跨任务、不改变原评级，不可绕过人工否决。", []string{"task_id", "finding_ids", "title", "reason"}},
-		{"suggest_finding_merge", "证据不足时提交疑似重复建议，待人工确认；不是自动合并。只允许两条同任务记录。", []string{"task_id", "finding_ids", "title", "reason"}},
+		{"merge_finding_records", "历史兼容接口；漏洞重复确认开启时 Agent 调用会被拒绝，必须改用 suggest_finding_merge 等待人工确认。", []string{"task_id", "finding_ids", "title", "reason"}},
+		{"suggest_finding_merge", "提交两条同任务记录的重复判断建议，待人工在发现页确认；即使证据明确也不自动合并。", []string{"task_id", "finding_ids", "title", "reason"}},
 		{"get_finding_case", "读取归并组和成员分页。先记录version，再读取成员的原报告、证据及流量；版本变化必须重新读取。", []string{"case_id"}},
 		{"update_finding_case_report", "保存统一报告及评级理由，version必须来自实际读取。保留各条原报告，不新建漏洞。", []string{"case_id", "version", "title", "report", "severity", "severity_reason"}},
 	}
@@ -295,6 +314,20 @@ func (s *Server) findingCaseTools() []actool.CoreTool {
 func (s *Server) performFindingCaseTool(ctx context.Context, name string, a findingCaseRequest) (any, error) {
 	if err := s.checkCaseReviewScope(ctx, name, a); err != nil {
 		return nil, err
+	}
+	duplicateConfirmation := s.findingDuplicateConfirmationEnabled()
+	if !duplicateConfirmation {
+		switch name {
+		case "search_finding_duplicates", "merge_finding_records", "suggest_finding_merge":
+			return nil, errors.New("漏洞重复确认已在系统配置中关闭；所有漏洞按独立记录处理，不得搜索或提交重复关系")
+		}
+	}
+	if name == "merge_finding_records" {
+		ids := a.ids()
+		if len(ids) != 2 {
+			return nil, errors.New("漏洞重复确认要求人工逐对确认；请拆分为每次两条，并调用 suggest_finding_merge 提交待确认建议")
+		}
+		return nil, errors.New("漏洞重复确认已开启：Agent 不得自动归并；请调用 suggest_finding_merge 提交待人工确认建议")
 	}
 	fid := parseProfileID(a.FindingID)
 	cid := parseProfileID(a.CaseID)
@@ -336,9 +369,6 @@ func (s *Server) performFindingCaseTool(ctx context.Context, name string, a find
 			}
 		}
 		return map[string]any{"finding": dto, "finding_node_id": f.NodeID}, nil
-	case "merge_finding_records":
-		id, err := s.m.pg.MergeFindingCase(ctx, parseProfileID(a.TaskID), a.ids(), a.Title, a.Reason, "reporter")
-		return map[string]string{"case_id": i64s(id)}, err
 	case "suggest_finding_merge":
 		ids := a.ids()
 		if len(ids) != 2 {
@@ -403,6 +433,10 @@ func (s *Server) reviewFindingCases(w http.ResponseWriter, r *http.Request) {
 	if !decodeCaseRequest(w, r, &a) {
 		return
 	}
+	if !s.findingDuplicateConfirmationEnabled() && parseProfileID(a.CaseID) == 0 {
+		writeErr(w, 409, "漏洞重复确认已在系统配置中关闭；所有漏洞按独立记录处理")
+		return
+	}
 	ids := a.ids()
 	if cid := parseProfileID(a.CaseID); cid > 0 {
 		c, err := s.m.pg.GetFindingCase(cid)
@@ -463,7 +497,7 @@ func (s *Server) reviewFindingCases(w http.ResponseWriter, r *http.Request) {
 		taskID, fids := reservation.TaskID, reservation.FindingIDs
 		taskContext := taskContexts[taskID]
 		raw, _ := json.Marshal(fids)
-		msg := fmt.Sprintf("人工选择整理（只读原始记录）：本任务所选 finding_ids=%s。逐条读取已有报告，仅判断同一实际根因，明确则归并，不确定提交建议；已有组更新统一报告。禁止生成或覆盖原始报告、改评级状态、补绑证据，不归并未选记录，不探测目标。结束前调用 complete_finding_case_review 提交逐条判断并通过验收。", raw)
+		msg := fmt.Sprintf("人工选择整理（只读原始记录）：本任务所选 finding_ids=%s。逐条读取已有报告，仅判断同一实际根因。明确同一根因或存在疑似关联都必须提交待确认建议，不得自动归并；已有组更新统一报告。禁止生成或覆盖原始报告、改评级状态、补绑证据，不归并未选记录，不探测目标。结束前调用 complete_finding_case_review 提交逐条判断并通过验收。", raw)
 		item := triggeredRun{agentKey: "reporter", title: "漏洞整理 · task#" + i64s(taskID), message: msg, taskID: taskID, taskDesc: taskContext.taskDesc, taskGoal: taskContext.taskGoal, conversationID: reservation.ConversationID}
 		cfg := s.readTriggerBehavior("reporter")
 		s.queueMu.Lock()

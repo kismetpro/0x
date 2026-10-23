@@ -161,6 +161,7 @@ export default function FindingsPage() {
   const [deepenFinding, setDeepenFinding] = React.useState<Finding | null>(null);
   const [retestFinding, setRetestFinding] = React.useState<Finding | null>(null);
   const [activeRetests, setActiveRetests] = React.useState<Record<string, ActiveFindingRetest>>({});
+  const [duplicateConfirmationEnabled, setDuplicateConfirmationEnabled] = React.useState(true);
   const activeRetestFingerprint = Object.values(activeRetests)
     .map((item) => item.id)
     .join(",");
@@ -170,6 +171,20 @@ export default function FindingsPage() {
   const filterFingerprint = JSON.stringify([severity, status, vulnclass, task, sort, query]);
   const activeFilterFingerprint = React.useRef(filterFingerprint);
   activeFilterFingerprint.current = filterFingerprint;
+
+  // 关闭重复确认后，发现页不再提供人工整理入口。
+  React.useEffect(() => {
+    let active = true;
+    api
+      .settings()
+      .then((settings) => {
+        if (active) setDuplicateConfirmationEnabled(settings.finding_duplicate_confirmation_enabled !== false);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
 
   // 一个轻量请求覆盖所有行/视图，避免逐行拉取完整复测历史；等待上一轮完成再轮询。
   React.useEffect(() => {
@@ -1002,24 +1017,26 @@ export default function FindingsPage() {
             {selectedIds.size > 0 && (
               <span className="text-xs text-muted-foreground tabular-nums">已选 {selectedIds.size} 条</span>
             )}
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={reviewing || selectedIds.size === 0}
-              onClick={async () => {
-                setReviewing(true);
-                try {
-                  await api.reviewFindingCases([...selectedIds]);
-                  toast.success("已提交整理，按任务分别执行");
-                } catch (e) {
-                  toast.error((e as Error).message);
-                } finally {
-                  setReviewing(false);
-                }
-              }}
-            >
-              {reviewing ? <Spinner /> : null}整理所选（{selectedIds.size}）
-            </Button>
+            {duplicateConfirmationEnabled ? (
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={reviewing || selectedIds.size === 0}
+                onClick={async () => {
+                  setReviewing(true);
+                  try {
+                    await api.reviewFindingCases([...selectedIds]);
+                    toast.success("已提交整理，按任务分别执行");
+                  } catch (e) {
+                    toast.error((e as Error).message);
+                  } finally {
+                    setReviewing(false);
+                  }
+                }}
+              >
+                {reviewing ? <Spinner /> : null}整理所选（{selectedIds.size}）
+              </Button>
+            ) : null}
             <Button size="sm" variant="outline" onClick={openExport}>
               <DownloadIcon /> 导出
             </Button>

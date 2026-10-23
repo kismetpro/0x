@@ -270,8 +270,24 @@ function FindingReviewRunRow({ run: r }: { run: FindingCaseReviewRun }) {
 export function FindingCaseReviewPanel({ taskId, onChange }: { taskId?: string; onChange?: () => void }) {
   const [suggestions, setSuggestions] = React.useState<FindingCaseSuggestion[]>([]);
   const [runs, setRuns] = React.useState<FindingCaseReviewRun[]>([]);
+  const [confirmationEnabled, setConfirmationEnabled] = React.useState<boolean | null>(null);
   const [error, setError] = React.useState("");
   React.useEffect(() => {
+    let active = true;
+    api
+      .settings()
+      .then((settings) => {
+        if (active) setConfirmationEnabled(settings.finding_duplicate_confirmation_enabled !== false);
+      })
+      .catch(() => {
+        if (active) setConfirmationEnabled(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+  React.useEffect(() => {
+    if (confirmationEnabled !== true) return;
     let active = true;
     let timer: ReturnType<typeof setTimeout>;
     async function load() {
@@ -293,7 +309,7 @@ export function FindingCaseReviewPanel({ taskId, onChange }: { taskId?: string; 
       active = false;
       clearTimeout(timer);
     };
-  }, [taskId]);
+  }, [confirmationEnabled, taskId]);
   async function resolve(s: FindingCaseSuggestion, accept: boolean) {
     try {
       const result = await api.resolveFindingCaseSuggestion(s.id, accept);
@@ -308,6 +324,7 @@ export function FindingCaseReviewPanel({ taskId, onChange }: { taskId?: string; 
       toast.error((e as Error).message);
     }
   }
+  if (confirmationEnabled !== true) return null;
   return (
     <div className="flex flex-col gap-2">
       {error ? (

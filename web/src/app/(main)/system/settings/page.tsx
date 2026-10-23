@@ -48,6 +48,8 @@ export default function SystemSettingsPage() {
   // 操作约束注入范围(默认都开)。
   const [injectPlanner, setInjectPlanner] = React.useState(true);
   const [injectWorker, setInjectWorker] = React.useState(true);
+  // 漏洞重复确认（默认开）：Agent 仅提交建议，由发现页人工确认。
+  const [duplicateConfirmation, setDuplicateConfirmation] = React.useState(true);
   // 实验功能:noa 上下文压缩(默认关)。
   const [noaCompaction, setNoaCompaction] = React.useState(false);
   // 纯前端偏好：不走 /api/settings，直接读写 localStorage。
@@ -69,6 +71,7 @@ export default function SystemSettingsPage() {
     setWorkers(String(s.workers ?? 3));
     setInjectPlanner(s.constraints_inject_planner !== false);
     setInjectWorker(s.constraints_inject_worker !== false);
+    setDuplicateConfirmation(s.finding_duplicate_confirmation_enabled !== false);
     setNoaCompaction(!!s.noa_compaction);
   }, []);
 
@@ -157,6 +160,20 @@ export default function SystemSettingsPage() {
       .setSettings({ constraints_inject_worker: v })
       .then(apply)
       .catch(() => setInjectWorker(!v)); // revert on failure
+  };
+
+  const toggleDuplicateConfirmation = (v: boolean) => {
+    setDuplicateConfirmation(v); // optimistic
+    api
+      .setSettings({ finding_duplicate_confirmation_enabled: v })
+      .then((s) => {
+        apply(s);
+        toast.success(v ? "已开启漏洞重复确认，待确认建议将显示在发现页" : "已关闭漏洞重复确认，所有漏洞按独立记录处理");
+      })
+      .catch((e) => {
+        setDuplicateConfirmation(!v);
+        toast.error(`保存失败：${(e as Error).message}`);
+      });
   };
 
   const toggleNoaCompaction = (v: boolean) => {
@@ -344,6 +361,33 @@ export default function SystemSettingsPage() {
               checked={agentTrafficBinding}
               disabled={!loaded || saving}
               onCheckedChange={toggleAgentTrafficBinding}
+            />
+          </CardContent>
+        </Card>
+
+        <Card className="mb-4 break-inside-avoid md:mb-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base">
+              <SearchIcon className="size-4" />
+              漏洞重复确认
+            </CardTitle>
+            <CardDescription id="finding-duplicate-confirmation-description">
+              默认开启。报告 Agent 仍会核对同任务候选，但即使证据明确指向同一根因，也只会提交
+              <b>待确认建议</b>，不会自动归并。发现页需人工选择「确认归并」或「不是同一漏洞」。
+              <br />
+              关闭后会跳过重复判断，所有新上报按独立漏洞处理，待确认建议暂时隐藏。已有归并组、历史记录和原始报告均保留，重新开启后继续显示。
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex items-center justify-between gap-4">
+            <Label htmlFor="finding-duplicate-confirmation" className="font-normal text-muted-foreground text-sm">
+              {duplicateConfirmation ? "已开启 · 疑似重复需人工确认" : "已关闭 · 所有漏洞按独立记录处理"}
+            </Label>
+            <Switch
+              id="finding-duplicate-confirmation"
+              aria-describedby="finding-duplicate-confirmation-description"
+              checked={duplicateConfirmation}
+              disabled={!loaded}
+              onCheckedChange={toggleDuplicateConfirmation}
             />
           </CardContent>
         </Card>
