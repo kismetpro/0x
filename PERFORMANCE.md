@@ -16,6 +16,11 @@ The `workers` setting (default 3) remains the per-task worker pool size. Five
 admitted tasks can therefore have up to 15 workers plus their planners. This is
 not an API request-rate limit; configure the LLM profile's rate limits separately.
 
+Across all admitted tasks, execution also passes through a process-wide worker
+budget (default 15, configurable with `ZEROX_MAX_CONCURRENT_WORKERS`). Raising the
+task-concurrency limit therefore does not multiply worker DB/LLM clients without
+bound. Planners remain bounded by the task-concurrency admission itself.
+
 A scheduling round consists of planning followed by a finite snapshot of at most
 `workers` open intents, ordered by the existing priority/FIFO policy. Seeded work
 can execute before the first planning pass, as before. Planners can supervise
@@ -74,6 +79,16 @@ retains the leading number and valid UTF-8 even for long non-ASCII titles.
    up to 100,000 assets for each of six global asset types. Reports no longer
    include other tasks' asset counts.
 5. Planner debounce respects shutdown cancellation and stops its timer.
+6. Batch pause cancels every selected task before one bulk `UPDATE`, then runs a
+   single post-batch admission pass. This prevents the old loop from pausing one
+   task and immediately admitting a queued replacement during the same request.
+7. Cold-graph maintenance is throttled to 30 seconds, uses a topology-only query
+   without JSONB payloads, allows at most three concurrent maintenance scans and
+   two background compactions, and inherits the task context so pause/delete
+   cancels compression immediately.
+8. PostgreSQL keeps at most 20 open and 6 idle connections; idle connections are
+   released after one minute. This bounds backend processes after a multi-task
+   burst without starving normal query concurrency.
 
 No model, prompts, context windows, maximum turns, evidence retention, tool
 permissions, or discovery logic are reduced by these optimizations.

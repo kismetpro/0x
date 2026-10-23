@@ -759,6 +759,84 @@ func TestBatchControlLimitCountsDeduplicatedIDs(t *testing.T) {
 
 }
 
+func TestBatchPauseStopsAllTasksWithoutPromotingQueuedReplacement(t *testing.T) {
+	m, err := NewManager(t.TempDir(), "")
+	if err != nil {
+		t.Skipf("postgres unavailable (%v) - skipping", err)
+	}
+	defer m.Close()
+	defer restoreConcurrencySetting(t, m)()
+	if err := m.SetConcurrency(true, 2); err != nil {
+		t.Fatal(err)
+	}
+
+	tasks := make([]*Task, 0, 6)
+	ids := make([]string, 0, 6)
+	for i := 0; i < 6; i++ {
+		task, err := m.CreateTask(fmt.Sprintf("batch pause %d", i), "fixture", nil, 0, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tasks = append(tasks, task)
+		ids = append(ids, task.ID)
+		defer func(id string) { _, _ = m.DeleteTask(id, DeleteTaskOptions{}) }(task.ID)
+		if err := m.EnqueueTask(task.ID, "resume"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	s := newAdmissionTestServer(m, nil)
+	s.ctx = context.Background()
+	s.engine.configureTaskRounds(true)
+	for _, task := range tasks {
+		// Pretend the long-lived loops are already registered. This lets the
+		// admission test exercise queue state without launching placeholder agents.
+		s.engine.started.Store(task.ID, true)
+	}
+	s.reconcileConcurrency()
+	running := 0
+	for _, task := range tasks {
+		if !task.lifecycleSnapshot().Queued {
+			running++
+		}
+	}
+	if running != 2 {
+		t.Fatalf("running=%d, want 2", running)
+	}
+
+	body, _ := json.Marshal(map[string]any{"task_ids": ids, "action": "pause"})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/tasks/control/batch", bytes.NewReader(body))
+	s.controlTasksBatch(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("batch pause status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var payload struct {
+		Items []batchControlItem `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Items) != len(tasks) {
+		t.Fatalf("items=%d, want %d", len(payload.Items), len(tasks))
+	}
+	for _, item := range payload.Items {
+		if !item.OK || item.Status != "paused" || item.Queued {
+			t.Fatalf("bad batch pause item: %+v", item)
+		}
+	}
+	// Let the single post-batch reconcile opportunity run. No task may be promoted
+	// back into a concurrency slot while the whole batch is paused.
+	time.Sleep(50 * time.Millisecond)
+	for _, task := range tasks {
+		state := task.lifecycleSnapshot()
+		if !state.Paused || state.Queued || !s.engine.IsPaused(task.ID) {
+			t.Fatalf("task %s resurrected after batch pause: paused=%v queued=%v engine=%v",
+				task.ID, state.Paused, state.Queued, s.engine.IsPaused(task.ID))
+		}
+	}
+}
+
 func TestPauseTaskToolPersistsAndDequeuesTask(t *testing.T) {
 	m, err := NewManager(t.TempDir(), "")
 	if err != nil {

@@ -701,6 +701,32 @@ func (u *TokenUsage) add(other TokenUsage) {
 
 const nodeCols = `id, kind, payload, priority, state, COALESCE(origin,''), COALESCE(owner,''), COALESCE(blocked_reason,''), COALESCE(delete_reason,''), created_at`
 
+// NodeTopology is the compact node shape used by graph algorithms that only
+// need identity/kind/state. It deliberately avoids reading JSONB payloads.
+type NodeTopology struct {
+	ID    int64
+	Kind  string
+	State string
+}
+
+// NodeTopology returns identity/kind/state for the whole exploration.
+func (s *ExplorationStore) NodeTopology() ([]NodeTopology, error) {
+	rows, err := s.db.Query(`SELECT id, kind, state FROM exploration_nodes WHERE exploration_id=$1`, s.expID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []NodeTopology{}
+	for rows.Next() {
+		var n NodeTopology
+		if err := rows.Scan(&n.ID, &n.Kind, &n.State); err != nil {
+			return nil, err
+		}
+		out = append(out, n)
+	}
+	return out, rows.Err()
+}
+
 func scanNode(sc interface{ Scan(...any) error }) (*Node, error) {
 	var n Node
 	var payload []byte

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -116,6 +117,11 @@ type Engine struct {
 	runtimeMu sync.Mutex
 	runtimes  map[string]*taskRuntime
 
+	// workSlots bounds simultaneously executing worker intents across all tasks.
+	// Task admission and per-task worker pools remain independent, but a 20-task
+	// limit × 3 workers must not turn into 60 concurrent DB/LLM clients.
+	workSlots chan struct{}
+
 	// per-task execution context: each planner.Plan / worker.Execute runs under it,
 	// so pausing can CANCEL an in-flight run (not just skip the next one). Recreated
 	// on resume since cancelling is one-shot. Every cancellation carries a named
@@ -180,6 +186,11 @@ func (e *Engine) nextPlannerRound(taskID string) int {
 func (e *Engine) Pause(taskID string, cause error) {
 	e.paused.Store(taskID, true)
 	e.cancelExec(taskID, cause)
+	if e.m != nil {
+		if t, ok := e.m.Task(taskID); ok {
+			t.wakeWorkers()
+		}
+	}
 }
 
 // BeginDelete installs an execution barrier before task data/files are removed.
@@ -393,11 +404,26 @@ func (e *Engine) ActiveLLMCalls(taskID string) int64 {
 
 func (e *Engine) touch(taskID string) { e.lastAct.Store(taskID, time.Now().Unix()) }
 
+const defaultMaxConcurrentWorkers = defaultWorkers * defaultConcurrencyLimit
+
+func maxConcurrentWorkers() int {
+	raw := strings.TrimSpace(os.Getenv("ZEROX_MAX_CONCURRENT_WORKERS"))
+	if raw == "" {
+		return defaultMaxConcurrentWorkers
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		log.Printf("[engine] invalid ZEROX_MAX_CONCURRENT_WORKERS=%q; using %d", raw, defaultMaxConcurrentWorkers)
+		return defaultMaxConcurrentWorkers
+	}
+	return n
+}
+
 func NewEngine(m *Manager) *Engine {
 	return &Engine{m: m, debounce: 800 * time.Millisecond, bc: NewBroadcaster(),
 		execCancel: map[string]context.CancelCauseFunc{}, execCtx: map[string]context.Context{},
 		work: map[int64]*workExecution{}, steerBox: map[int64][]string{},
-		runtimes: map[string]*taskRuntime{}}
+		runtimes: map[string]*taskRuntime{}, workSlots: make(chan struct{}, maxConcurrentWorkers())}
 }
 
 // registerWork records the cancel for the work currently running intentID.
@@ -978,13 +1004,6 @@ func (e *Engine) workerLoop(ctx context.Context, t *Task, name string) {
 			}
 			continue
 		}
-		_, worker := e.snapshotFor(t)
-		if worker == nil {
-			if sleepCtx(ctx, 1500*time.Millisecond) {
-				return
-			}
-			continue
-		}
 		if e.IsPaused(t.ID) {
 			if sleepCtx(ctx, 1000*time.Millisecond) {
 				return
@@ -1006,14 +1025,62 @@ func (e *Engine) workerLoop(ctx context.Context, t *Task, name string) {
 			}
 			continue // 任务已终态(done/failed/timeout):停止领取遗留意图,别在完成后空跑 frontier
 		}
+		if !e.acquireWorkSlot(ctx, wake) {
+			if ctx.Err() != nil {
+				return
+			}
+			continue
+		}
+		_, worker := e.snapshotFor(t)
+		if worker == nil {
+			e.releaseWorkSlot()
+			if sleepCtx(ctx, 1500*time.Millisecond) {
+				return
+			}
+			continue
+		}
 		if !e.beginTaskOperation(t.ID) {
+			e.releaseWorkSlot()
 			return
 		}
 		claimed := e.runWorkerStep(ctx, t, name, worker)
 		e.decInflight(t.ID)
+		e.releaseWorkSlot()
 		if !claimed && waitWorkerWake(ctx, wake) {
 			return
 		}
+	}
+}
+
+func (e *Engine) acquireWorkSlot(ctx context.Context, wake <-chan struct{}) bool {
+	if e.workSlots == nil {
+		return true
+	}
+	select {
+	case e.workSlots <- struct{}{}:
+		return true
+	case <-ctx.Done():
+		return false
+	case <-wake:
+		return false
+	}
+}
+
+func (e *Engine) tryAcquireWorkSlot() bool {
+	if e.workSlots == nil {
+		return true
+	}
+	select {
+	case e.workSlots <- struct{}{}:
+		return true
+	default:
+		return false
+	}
+}
+
+func (e *Engine) releaseWorkSlot() {
+	if e.workSlots != nil {
+		<-e.workSlots
 	}
 }
 

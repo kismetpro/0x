@@ -333,7 +333,7 @@ CGO_ENABLED=0 go build -tags embedui -o 0x ./cmd/0x
 **LLM**：`export ANTHROPIC_API_KEY=sk-...`（或 `OPENAI_API_KEY`），也可在 UI 的「LLM 配置」页填写。
 可选：`ZEROX_LLM_PROVIDER` / `ZEROX_LLM_MODEL` / `ZEROX_LLM_BASE_URL` / `ZEROX_LLM_PROXY`。
 
-**并发**：每个任务的 work agent 数在「系统设置」里配置（默认 3）。
+**并发**：每个任务的 work agent 数在「系统设置」里配置（默认 3）。跨任务的 Worker 总并发默认限制为 15，避免 20 个任务 × 3 Worker 同时压垮 PostgreSQL 和模型；可用 `ZEROX_MAX_CONCURRENT_WORKERS` 调整。
 
 **常用参数**：`./start.sh -addr :9887 -proxy :9888`（`-addr` 前端+API，`-proxy` 流量录制代理）。启动脚本会把参数原样透传给 `0x`。
 
@@ -395,6 +395,7 @@ server {
 
 - 每条漏洞记录提供稳定编号（如 `0X-V-00000042`）；归并后的实际缺陷使用 `0X-C-00000009`。修改名称、评级或导出排序不会改变编号。Markdown 正文、ZIP 内文件名、CSV 与 JSON 均包含编号，支持按编号搜索。
 - 任务列表的「并发设置」新增「按轮轮询任务」。同时开启并发限制、上限设为 5 后，30 个任务按 FIFO 轮换，每个任务的一批子代理自然结束并完成写回后自动等待、立即补位；每任务子代理数量仍由系统设置独立控制（默认 3）。这不是手动暂停，也不会为了轮换强杀正在执行的工具。
+- 跨任务 Worker 共用全局并发预算（默认 15，可设 `ZEROX_MAX_CONCURRENT_WORKERS`）；批量暂停会先同时取消全部任务执行，再单条 SQL 落库，并在最后统一补位一次，避免“暂停过程中又启动下一批任务”。
 - 采用保持槽位有活可做的 FIFO，而非全局轮次屏障；没有工作、模型不可用或手动暂停时不保证凑足 5 个任务。空轮会等待心跳或新事件，不会反复空调用模型。既有绝对任务超时规则保持不变（包括等待时间）。
 - 实现边界、复现命令和本地隔离测试见 [PERFORMANCE.md](PERFORMANCE.md)。
 

@@ -22,10 +22,14 @@ var schemaSQL string
 
 const schemaMigrationLockKey int64 = 7337741001
 
-// maxOpenConns 是连接池上限，见 Open 里的说明。取值远低于 PostgreSQL 默认的
-// max_connections=100，同时远高于应用自身的嵌套取连接深度（启动期的 schema
-// advisory lock 会在持有一条连接的同时让 seedBuiltins 另取连接），不会自锁。
-const maxOpenConns = 32
+// maxOpenConns 是连接池上限，见 Open 里的说明。多任务运行时每个 PostgreSQL
+// backend 都是独立进程；20 个连接足以覆盖调度热路径，并把多任务高峰的 PG
+// 后端进程数控制在合理范围。空闲连接快速缩到 6 个，暂停后不会长期保留几十个
+// idle 进程。启动期 advisory lock 会临时占用一条连接，仍留有充足余量。
+const (
+	maxOpenConns = 20
+	maxIdleConns = 6
+)
 
 var schemaDeadlockRetryDelays = [...]time.Duration{
 	100 * time.Millisecond,
@@ -145,9 +149,9 @@ func Open(dsn string) (*DB, error) {
 	// "读不到"和"没有"。maxOpenConns 要留出余量给 psql / reset-password.sh 以及
 	// 可能并存的其他实例；若 max_connections 调低过，这里也要跟着往下调。
 	sqlDB.SetMaxOpenConns(maxOpenConns)
-	sqlDB.SetMaxIdleConns(maxOpenConns)
+	sqlDB.SetMaxIdleConns(maxIdleConns)
 	sqlDB.SetConnMaxLifetime(30 * time.Minute)
-	sqlDB.SetConnMaxIdleTime(5 * time.Minute)
+	sqlDB.SetConnMaxIdleTime(time.Minute)
 	if err := sqlDB.Ping(); err != nil {
 		sqlDB.Close()
 		return nil, fmt.Errorf("ping postgres (%s): %w", config.Redact(dsn), err)

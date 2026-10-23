@@ -187,6 +187,32 @@ func TestQueuedWorkersNeverResolveLLMProfiles(t *testing.T) {
 	}
 }
 
+func TestEngineGlobalWorkerSlots(t *testing.T) {
+	e := NewEngine(nil)
+	e.workSlots = make(chan struct{}, 2)
+	if !e.tryAcquireWorkSlot() || !e.tryAcquireWorkSlot() {
+		t.Fatal("failed to acquire available worker slots")
+	}
+	if e.tryAcquireWorkSlot() {
+		t.Fatal("worker budget exceeded")
+	}
+	e.releaseWorkSlot()
+	if !e.tryAcquireWorkSlot() {
+		t.Fatal("released worker slot was not reusable")
+	}
+}
+
+func TestMaxConcurrentWorkersSetting(t *testing.T) {
+	t.Setenv("ZEROX_MAX_CONCURRENT_WORKERS", "7")
+	if got := maxConcurrentWorkers(); got != 7 {
+		t.Fatalf("worker budget=%d, want 7", got)
+	}
+	t.Setenv("ZEROX_MAX_CONCURRENT_WORKERS", "invalid")
+	if got := maxConcurrentWorkers(); got != defaultMaxConcurrentWorkers {
+		t.Fatalf("invalid worker budget=%d, want default %d", got, defaultMaxConcurrentWorkers)
+	}
+}
+
 func TestRoundRobinThirtyTasksKeepFiveSlotsAndFIFO(t *testing.T) {
 	m, err := NewManager(t.TempDir(), "")
 	if err != nil {

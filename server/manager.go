@@ -1260,6 +1260,52 @@ func (m *Manager) applyTaskAdmission(id, expectedStatus, status string, queued b
 // a new queued_at timestamp and therefore moves to the FIFO tail.
 func (m *Manager) ApplyTaskPause(id string) error { return m.ApplyTaskPauseOrigin(id, false) }
 
+// ApplyTaskPauseBatch persists a batch pause with one UPDATE and mirrors every
+// affected task into memory. PostgreSQL remains authoritative: only rows still
+// non-terminal are returned and reported as successfully paused.
+func (m *Manager) ApplyTaskPauseBatch(ids []int64, scheduled bool) (map[int64]string, error) {
+	m.taskStateMu.Lock()
+	defer m.taskStateMu.Unlock()
+	if len(ids) == 0 {
+		return map[int64]string{}, nil
+	}
+	rows, err := m.pg.Query(`UPDATE tasks
+		SET paused=true, queued=false, queued_at=NULL, schedule_paused=$2, schedule_manual_until=NULL
+		WHERE id=ANY($1::bigint[]) AND deleted_at IS NULL
+		  AND status NOT IN ('done','failed','timeout')
+		RETURNING id, COALESCE(queue_mode,'')`, ids, scheduled)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	result := make(map[int64]string, len(ids))
+	for rows.Next() {
+		var id int64
+		var mode string
+		if err := rows.Scan(&id, &mode); err != nil {
+			return nil, err
+		}
+		result[id] = mode
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	m.mu.Lock()
+	for id, mode := range result {
+		taskID := strconv.FormatInt(id, 10)
+		if t := m.tasks[taskID]; t != nil {
+			t.updateLifecycle(func(state *taskLifecycleState) {
+				state.Paused = true
+				state.Queued = false
+				state.QueuedAt = 0
+				state.QueueMode = mode
+			})
+		}
+	}
+	m.mu.Unlock()
+	return result, nil
+}
+
 func (m *Manager) ApplyTaskPauseOrigin(id string, scheduled bool) error {
 	m.taskStateMu.Lock()
 	defer m.taskStateMu.Unlock()

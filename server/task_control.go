@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/kismetpro/0x/agent"
@@ -270,6 +271,10 @@ func (s *Server) controlTasksBatch(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, fmt.Sprintf("task_ids 数量必须为 1-%d", maxBatchControlIDs))
 		return
 	}
+	if req.Action == "pause" {
+		s.pauseTasksBatch(w, taskIDs)
+		return
+	}
 	items := make([]batchControlItem, 0, len(taskIDs))
 	for _, parsed := range taskIDs {
 		item := batchControlItem{ID: parsed.id}
@@ -292,5 +297,90 @@ func (s *Server) controlTasksBatch(w http.ResponseWriter, r *http.Request) {
 		}
 		items = append(items, item)
 	}
+	writeJSON(w, 200, map[string]any{"items": items})
+}
+
+// pauseTasksBatch cancels every valid task before persisting the pause in one
+// database round trip. The global scheduler lock is held for the whole batch:
+// otherwise each individual pause would wake reconcileConcurrency and launch a
+// replacement task while the user is in the middle of pausing everything.
+func (s *Server) pauseTasksBatch(w http.ResponseWriter, taskIDs []parsedTaskID) {
+	items := make([]batchControlItem, len(taskIDs))
+	candidates := make([]*Task, 0, len(taskIDs))
+	ids := make([]int64, 0, len(taskIDs))
+	wasEnginePaused := make(map[string]bool, len(taskIDs))
+
+	s.concMu.Lock()
+	defer s.concMu.Unlock()
+
+	for i, parsed := range taskIDs {
+		items[i] = batchControlItem{ID: parsed.id}
+		if !parsed.valid {
+			items[i].Error = "bad task id"
+			continue
+		}
+		t, ok := s.m.Task(parsed.id)
+		if !ok {
+			items[i].Error = "task not found"
+			continue
+		}
+		if s.engine.IsDeleting(t.ID) {
+			items[i].Error = "任务正在删除，无法控制"
+			continue
+		}
+		lifecycle := t.lifecycleSnapshot()
+		if isTerminalStatus(lifecycle.Status) {
+			items[i].Error = "终态任务不能执行暂停"
+			continue
+		}
+		id, err := strconv.ParseInt(t.ID, 10, 64)
+		if err != nil {
+			items[i].Error = "bad task id"
+			continue
+		}
+		wasEnginePaused[t.ID] = s.engine.IsPaused(t.ID)
+		candidates = append(candidates, t)
+		ids = append(ids, id)
+	}
+
+	// First cancel every candidate in memory. This stops planners/workers before
+	// the database batch commits rather than taking one full round trip per task.
+	for _, t := range candidates {
+		s.engine.Pause(t.ID, agent.AbortPausedByUser)
+	}
+
+	paused, err := s.m.ApplyTaskPauseBatch(ids, false)
+	if err != nil {
+		for _, t := range candidates {
+			if !wasEnginePaused[t.ID] {
+				s.engine.Resume(t)
+			}
+		}
+		writeErr(w, 500, "批量暂停失败: "+err.Error())
+		return
+	}
+
+	candidateIndex := make(map[string]int, len(candidates))
+	for i, taskID := range taskIDs {
+		if taskID.valid {
+			candidateIndex[taskID.id] = i
+		}
+	}
+	for _, t := range candidates {
+		idx, ok := candidateIndex[t.ID]
+		if !ok {
+			continue
+		}
+		id, _ := strconv.ParseInt(t.ID, 10, 64)
+		if _, ok := paused[id]; !ok {
+			items[idx].Error = "任务状态已变化，无法暂停"
+			continue
+		}
+		items[idx].OK = true
+		items[idx].Status = "paused"
+		s.cancelTaskChat(t.ID, agent.AbortChatPausedWithTask)
+	}
+	log.Printf("[task] 批量暂停完成: %d 个任务", len(paused))
+	go s.reconcileConcurrency()
 	writeJSON(w, 200, map[string]any{"items": items})
 }

@@ -409,7 +409,7 @@ func (t *ToolSet) graphOverviewData() map[string]any {
 	// — hidden() only folds a member out when it is covered AND still cold. Computed
 	// every round (cheap for real graph sizes); nil map degrades safely.
 	var hotAtRender map[int64]bool
-	if cg, _, err := loadColdGraph(t.ts); err == nil {
+	if cg, _, err := loadColdGraph(t.ts, false); err == nil {
 		hotAtRender = cg.hotSet()
 	}
 	hidden := func(id int64) bool { _, c := covered[id]; return c && !hotAtRender[id] }
