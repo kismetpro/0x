@@ -100,7 +100,7 @@ export default function LoginPage() {
             alt="0x"
             width={160}
             height={160}
-            className="relative rounded-full bg-white/10 p-3 ring-1 ring-white/20"
+            className="relative"
           />
         </div>
       </div>
