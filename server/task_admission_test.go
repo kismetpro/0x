@@ -837,6 +837,72 @@ func TestBatchPauseStopsAllTasksWithoutPromotingQueuedReplacement(t *testing.T) 
 	}
 }
 
+func TestBatchResumeThirtyTasks(t *testing.T) {
+	m, err := NewManager(t.TempDir(), "")
+	if err != nil {
+		t.Skipf("postgres unavailable (%v) - skipping", err)
+	}
+	defer m.Close()
+	defer restoreConcurrencySetting(t, m)()
+	if err := m.SetConcurrency(false, defaultConcurrencyLimit); err != nil {
+		t.Fatal(err)
+	}
+
+	tasks := make([]*Task, 0, 30)
+	ids := make([]string, 0, 30)
+	for i := 0; i < 30; i++ {
+		task, err := m.CreateTask(fmt.Sprintf("batch resume %d", i), "fixture", nil, 0, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		tasks = append(tasks, task)
+		ids = append(ids, task.ID)
+		defer func(id string) { _, _ = m.DeleteTask(id, DeleteTaskOptions{}) }(task.ID)
+		// Mark as already bootstrapped so admission only touches lifecycle/queue
+		// state and does not launch goal-decomposition goroutines in this fixture.
+		task.updateLifecycle(func(state *taskLifecycleState) { state.FirstRunAt = 1 })
+		if err := m.SetTaskPaused(task.ID, true); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	s := newAdmissionTestServer(m, nil)
+	s.ctx = context.Background()
+	for _, task := range tasks {
+		s.engine.started.Store(task.ID, true)
+	}
+	body, _ := json.Marshal(map[string]any{"task_ids": ids, "action": "resume"})
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/tasks/control/batch", bytes.NewReader(body))
+	started := time.Now()
+	s.controlTasksBatch(rec, req)
+	elapsed := time.Since(started)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("batch resume status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	var payload struct {
+		Items []batchControlItem `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Items) != len(tasks) {
+		t.Fatalf("items=%d, want %d", len(payload.Items), len(tasks))
+	}
+	for _, item := range payload.Items {
+		if !item.OK || item.Status != "running" || item.Queued {
+			t.Fatalf("bad batch resume item: %+v", item)
+		}
+	}
+	for _, task := range tasks {
+		state := task.lifecycleSnapshot()
+		if state.Paused || state.Queued || isTerminalStatus(state.Status) {
+			t.Fatalf("task %s not resumed: %+v", task.ID, state)
+		}
+	}
+	t.Logf("30-task batch resume: %s", elapsed)
+}
+
 func TestPauseTaskToolPersistsAndDequeuesTask(t *testing.T) {
 	m, err := NewManager(t.TempDir(), "")
 	if err != nil {
