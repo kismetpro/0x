@@ -44,7 +44,13 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             <SidebarMenuButton asChild>
               <Link prefetch={false} href="/function/tasks">
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src="/logo.png" alt="0x" width={40} height={40} className="shrink-0" />
+                <img
+                  src="/logo.png"
+                  alt="0x"
+                  width={28}
+                  height={28}
+                  className="size-7 shrink-0 object-contain"
+                />
                 <span className="font-semibold text-base">{APP_CONFIG.name}</span>
               </Link>
             </SidebarMenuButton>
