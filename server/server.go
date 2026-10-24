@@ -2308,6 +2308,11 @@ func (s *Server) findingsExport(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	fs = findingsWithDetailedReports(fs)
+	if len(fs) == 0 {
+		writeErr(w, 409, "没有可导出的漏洞：所选漏洞尚未生成详细报告")
+		return
+	}
 	now := time.Now()
 	stamp := now.Format("20060102-150405")
 	setDownload := func(contentType, filename string) {
@@ -2353,6 +2358,16 @@ func (s *Server) findingsExport(w http.ResponseWriter, r *http.Request) {
 	default:
 		writeErr(w, 400, "bad format: "+format)
 	}
+}
+
+func findingsWithDetailedReports(fs []*db.DBFinding) []*db.DBFinding {
+	out := make([]*db.DBFinding, 0, len(fs))
+	for _, f := range fs {
+		if f != nil && strings.TrimSpace(f.Report) != "" {
+			out = append(out, f)
+		}
+	}
+	return out
 }
 
 func findingProvenanceInTask(contextTask *Task, findingTaskID *int64) (sourceTaskID string, inherited, allowed bool) {

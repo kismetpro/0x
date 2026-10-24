@@ -33,6 +33,23 @@ func findingTitle(f *db.DBFinding) string {
 	return nz(f.Name, nz(f.VulnClass, "未分类"))
 }
 
+func findingTaskName(f *db.DBFinding) string {
+	if name := strings.TrimSpace(f.TaskName); name != "" {
+		return name
+	}
+	if f.TaskID == nil {
+		return "未关联 / 任务已删除"
+	}
+	return "未命名任务"
+}
+
+func findingTaskID(f *db.DBFinding) string {
+	if f.TaskID == nil {
+		return "-"
+	}
+	return fmt.Sprint(*f.TaskID)
+}
+
 // FindingsMarkdown 把一批 findings 整合成一份汇总报告(摘要 + 按严重等级分组,
 // 每条含类别/状态/所属任务/证据/详细报告)。
 func FindingsMarkdown(fs []*db.DBFinding, generatedAt time.Time) string {
@@ -74,8 +91,10 @@ func FindingsMarkdown(fs []*db.DBFinding, generatedAt time.Time) string {
 			fmt.Fprintf(&b, "- **类别**：%s\n", f.VulnClass)
 		}
 		fmt.Fprintf(&b, "- **状态**：%s\n", nz(f.Status, "pending"))
+		fmt.Fprintf(&b, "- **任务名称**：%s\n", findingTaskName(f))
+		fmt.Fprintf(&b, "- **任务ID**：%s\n", findingTaskID(f))
 		if desc := strings.TrimSpace(f.TaskDescription); desc != "" {
-			fmt.Fprintf(&b, "- **所属任务**：%s\n", desc)
+			fmt.Fprintf(&b, "- **任务描述**：%s\n", desc)
 		}
 		fmt.Fprintf(&b, "- **发现时间**：%s\n\n", f.CreatedAt.Format("2006-01-02 15:04:05"))
 		if s := strings.TrimSpace(f.Summary); s != "" {
@@ -105,8 +124,10 @@ func SingleFindingMarkdown(f *db.DBFinding, generatedAt time.Time) string {
 	}
 	fmt.Fprintf(&b, "- **严重等级**：%s\n", nz(f.Severity, "info"))
 	fmt.Fprintf(&b, "- **状态**：%s\n", nz(f.Status, "pending"))
+	fmt.Fprintf(&b, "- **任务名称**：%s\n", findingTaskName(f))
+	fmt.Fprintf(&b, "- **任务ID**：%s\n", findingTaskID(f))
 	if desc := strings.TrimSpace(f.TaskDescription); desc != "" {
-		fmt.Fprintf(&b, "- **所属任务**：%s\n", desc)
+		fmt.Fprintf(&b, "- **任务描述**：%s\n", desc)
 	}
 	fmt.Fprintf(&b, "- **发现时间**：%s\n", f.CreatedAt.Format("2006-01-02 15:04:05"))
 	fmt.Fprintf(&b, "- **生成时间**：%s\n\n", generatedAt.Format("2006-01-02 15:04:05"))
@@ -159,7 +180,7 @@ func FindingsCSV(fs []*db.DBFinding) []byte {
 	var buf bytes.Buffer
 	buf.WriteString("\xEF\xBB\xBF") // UTF-8 BOM
 	w := csv.NewWriter(&buf)
-	_ = w.Write([]string{"ID", "漏洞编号", "名称", "类别", "严重等级", "状态", "所属任务", "发现时间", "概述", "流量证据数量", "流量证据ID"})
+	_ = w.Write([]string{"ID", "漏洞编号", "名称", "类别", "严重等级", "状态", "任务名称", "任务ID", "任务描述", "发现时间", "概述", "流量证据数量", "流量证据ID"})
 	for _, f := range items {
 		id := fmt.Sprintf("%d", f.ID)
 		if f.ExportCaseID > 0 {
@@ -172,6 +193,8 @@ func FindingsCSV(fs []*db.DBFinding) []byte {
 			f.VulnClass,
 			nz(f.Severity, "info"),
 			nz(f.Status, "pending"),
+			findingTaskName(f),
+			findingTaskID(f),
 			f.TaskDescription,
 			f.CreatedAt.Format("2006-01-02 15:04:05"),
 			strings.TrimSpace(f.Summary),

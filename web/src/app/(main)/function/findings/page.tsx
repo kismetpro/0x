@@ -1304,7 +1304,9 @@ export default function FindingsPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>导出发现</DialogTitle>
-            <DialogDescription>选择导出范围与格式,生成后浏览器会自动下载。</DialogDescription>
+            <DialogDescription>
+              选择导出范围与格式。仅导出已生成详细报告的漏洞；尚未生成或仍在生成的漏洞会自动跳过。
+            </DialogDescription>
           </DialogHeader>
 
           <div className="flex flex-col gap-5 py-1">
@@ -1337,7 +1339,7 @@ export default function FindingsPage() {
                   onCheckedChange={(v) => setIncludeOriginals(v === true)}
                 />
                 <label htmlFor="include-original-reports" className="text-sm">
-                  包含原始子报告（默认每个文件夹一份统一报告）
+                  包含已生成的原始子报告（默认每个文件夹一份统一报告）
                 </label>
               </div>
               <RadioGroup value={exportFormat} onValueChange={(v) => setExportFormat(v as typeof exportFormat)}>

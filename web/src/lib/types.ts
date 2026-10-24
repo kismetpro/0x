@@ -509,6 +509,7 @@ export interface Finding {
   intent_id?: string;
   param_id?: string;
   task_id?: string;
+  task_name?: string;
   task_description?: string;
   source_task_id?: string;
   inherited?: boolean;

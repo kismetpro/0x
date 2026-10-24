@@ -330,6 +330,7 @@ type FindingDTO struct {
 	IntentID        string            `json:"intent_id,omitempty"`
 	ParamID         string            `json:"param_id,omitempty"`
 	TaskID          string            `json:"task_id,omitempty"`
+	TaskName        string            `json:"task_name,omitempty"`
 	TaskDescription string            `json:"task_description,omitempty"`
 	SourceTaskID    string            `json:"source_task_id,omitempty"`
 	Inherited       bool              `json:"inherited,omitempty"`
@@ -477,6 +478,7 @@ func findingFromDB(f *db.DBFinding, assets map[int64]*db.Asset) FindingDTO {
 	d.Assets = findingAssetDTOs(f.AssetIDs, assets)
 	if f.TaskID != nil {
 		d.TaskID = i64s(*f.TaskID)
+		d.TaskName = f.TaskName
 		d.TaskDescription = f.TaskDescription
 	}
 	if f.NodeID != nil {
